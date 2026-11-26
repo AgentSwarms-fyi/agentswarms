@@ -139,6 +139,8 @@ function TrainWizard() {
   const [period, setPeriod] = useState<MlPeriod>("auto");
   // Forecasting (R526): "" is one series, the total; a column forecasts each of its values.
   const [seriesColumn, setSeriesColumn] = useState("");
+  // Known-ahead drivers (R547): numbers already planned for the periods ahead.
+  const [drivers, setDrivers] = useState<string[]>([]);
   const [name, setName] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -260,6 +262,16 @@ function TrainWizard() {
     () => profile?.columns.filter((c) => c.kind === "numeric") ?? [],
     [profile],
   );
+  // What may be a driver: a number that is not the target, the time or the
+  // series. A choice that stopped qualifying (the target changed) drops out.
+  const driverChoices = useMemo(
+    () =>
+      numericColumns.filter(
+        (c) => c.name !== target && c.name !== timeColumn && c.name !== seriesColumn,
+      ),
+    [numericColumns, target, timeColumn, seriesColumn],
+  );
+  const forecastDrivers = drivers.filter((d) => driverChoices.some((c) => c.name === d));
   const filteredSources = useMemo(() => {
     if (!sources) return [];
     const needle = q.trim().toLowerCase();
@@ -317,12 +329,17 @@ function TrainWizard() {
           n_clusters: task === "clustering" && nClusters !== "" ? Number(nClusters) : undefined,
           contamination:
             task === "anomaly" && contamination !== "" ? Number(contamination) / 100 : undefined,
+          // A forecast's feature columns are its known-ahead drivers (R547).
           feature_columns:
-            task === "forecast" || task === "recommendation"
-              ? undefined
-              : profile && features.size < profile.columns.length - (needsTarget ? 1 : 0)
-                ? [...features]
-                : undefined,
+            task === "forecast"
+              ? forecastDrivers.length
+                ? forecastDrivers
+                : undefined
+              : task === "recommendation"
+                ? undefined
+                : profile && features.size < profile.columns.length - (needsTarget ? 1 : 0)
+                  ? [...features]
+                  : undefined,
           time_budget_minutes: budget === "" ? undefined : Number(budget),
           max_rows: maxRows === "" ? undefined : Number(maxRows),
           prep: Object.keys(prep).length ? prep : undefined,
@@ -661,6 +678,47 @@ function TrainWizard() {
                                 method, beside the total. The 25 largest are forecast one by one.
                               </p>
                             </div>
+                            <div className="space-y-1 sm:col-span-2">
+                              <Label className="text-xs">Known ahead (optional)</Label>
+                              {driverChoices.length === 0 ? (
+                                <p className="text-xs text-muted-foreground">
+                                  No other number column to use.
+                                </p>
+                              ) : (
+                                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                  {driverChoices.map((c) => (
+                                    <label
+                                      key={c.name}
+                                      className="flex items-center gap-1.5 text-sm"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        className="h-3.5 w-3.5 accent-primary"
+                                        checked={forecastDrivers.includes(c.name)}
+                                        disabled={
+                                          !forecastDrivers.includes(c.name) &&
+                                          forecastDrivers.length >= 10
+                                        }
+                                        onChange={(e) =>
+                                          setDrivers((d) =>
+                                            e.target.checked
+                                              ? [...d.filter((x) => x !== c.name), c.name]
+                                              : d.filter((x) => x !== c.name),
+                                          )
+                                        }
+                                      />
+                                      {c.name}
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+                              <p className="text-xs text-muted-foreground">
+                                Numbers already planned for the periods ahead: a price, a promotion
+                                flag, a holiday count. Put the planned values in rows past the last
+                                actual, with the target left empty. The backtest shows whether they
+                                helped; at most ten.
+                              </p>
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -987,6 +1045,10 @@ function TrainWizard() {
                             ? `one forecast per ${seriesColumn}, and the total`
                             : "one: the total"
                         }
+                      />
+                      <Row
+                        k="Known ahead"
+                        v={forecastDrivers.length ? forecastDrivers.join(", ") : "none"}
                       />
                     </>
                   ) : task === "recommendation" ? null : (

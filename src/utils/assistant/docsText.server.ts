@@ -2931,6 +2931,13 @@ export const DOCS_TEXT: DocsTextSection[] = [
  {
   "route": "/docs/ml/predictions",
   "page": "ML Models · Predictions",
+  "id": "forecast-drivers",
+  "heading": "Known ahead: drivers",
+  "text": "Some of what moves a forecast is already planned: a price change, a promotion, a holiday. Known ahead in the wizard names up to ten number columns that hold it. Put the planned values in rows past the last actual, with the target left empty. Each period's value is the mean of its rows. The lag model and a straight line through time and the drivers use them, backtested beside the methods that do not; the lowest error serves, and the model page says whether the drivers helped and by how much. In a backtest a driver's actual values are used, which is what known ahead means. A period ahead with no planned value takes the last known one, and the version says how many it assumed. With no period ahead planned at all, the drivers are not used: their backtest edge came from knowing values the forecast would not have. A column that is not a number, or is already the time, target or series, is refused."
+ },
+ {
+  "route": "/docs/ml/predictions",
+  "page": "ML Models · Predictions",
   "id": "forecasting",
   "heading": "Forecasting in BI",
   "text": "Line charts on a dashboard project ahead with the platform's shared forecaster: seasonal exponential smoothing when the history shows a season that beats a straight line, a linear trend otherwise, with a residual band that widens with distance. The AI Analyst and the alert engine use the same module, so a chart, its write-up and its alert cannot disagree. A forecast model from the registry can be attached instead: in the widget's time-series options choose it as the Source beside the period count, and the chart draws the model's projected periods. An alert's basis can be the forecast — the aggregate over the next N projected periods — evaluated at each scheduled refresh against the model's current projection, as the dashboard's owner."

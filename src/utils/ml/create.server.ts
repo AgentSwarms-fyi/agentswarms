@@ -5,6 +5,7 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { accessibleSchemas } from "@/utils/lakehouse/core.server";
+import { invalidDrivers } from "@/lib/mlForecastDrivers";
 import {
   createAndTrainVersion,
   mlTrainConfig as trainConfig,
@@ -54,6 +55,15 @@ export async function createModelAndTrain(
 ): Promise<MlCreateResult> {
   if (data.task === "forecast" && !data.time_column) {
     return { ok: false, error: "A forecast needs a time column" };
+  }
+  // A forecast's feature columns are its known-ahead drivers (R547).
+  if (data.task === "forecast" && data.feature_columns?.length) {
+    const bad = invalidDrivers(data.feature_columns, {
+      time: data.time_column,
+      target: data.target_column,
+      series: data.series_column,
+    });
+    if (bad) return { ok: false, error: bad };
   }
   if (ML_TARGET_TASKS.includes(data.task) && !data.target_column) {
     return { ok: false, error: "Choose the column to predict" };

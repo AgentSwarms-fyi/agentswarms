@@ -407,6 +407,28 @@ model.predict(rows, params={"decision_threshold": 0.5})       # move the line`}<
         <strong>Periods ahead</strong> can be changed when you retrain: the new version projects
         that many, and so do the ones after it.
       </P>
+      <H3 id="forecast-drivers">Known ahead: drivers</H3>
+      <P>
+        Some of what moves a forecast is already planned: a price change, a promotion, a holiday.{" "}
+        <strong>Known ahead</strong> in the wizard names up to ten number columns that hold it. Put
+        the planned values in rows past the last actual, with the target left empty.
+      </P>
+      <UL>
+        <li>
+          Each period&apos;s value is the mean of its rows. The lag model and a straight line
+          through time and the drivers use them, backtested beside the methods that do not; the
+          lowest error serves, and the model page says whether the drivers helped and by how much.
+        </li>
+        <li>
+          In a backtest a driver&apos;s actual values are used, which is what known ahead means.
+        </li>
+        <li>
+          A period ahead with no planned value takes the last known one, and the version says how
+          many it assumed. With no period ahead planned at all, the drivers are not used: their
+          backtest edge came from knowing values the forecast would not have. A column that is not a
+          number, or is already the time, target or series, is refused.
+        </li>
+      </UL>
 
       <H2 id="forecasting">Forecasting in BI</H2>
       <P>

@@ -1826,7 +1826,7 @@ def _calendar(idx, freq):
     return pd.DataFrame({k: list(v) for k, v in d.items()}, index=range(len(idx))).astype('float64')
 
 
-def _lag_frame(y, lags, freq=None):
+def _lag_frame(y, lags, freq=None, drv=None):
     import numpy as np
     import pandas as pd
     X = pd.DataFrame({'lag_%d' % k: y.shift(k).to_numpy() for k in range(1, lags + 1)})
@@ -1835,10 +1835,14 @@ def _lag_frame(y, lags, freq=None):
         cal = _calendar(y.index, freq)
         for c in cal.columns:
             X[c] = cal[c].to_numpy()
+    if drv is not None:
+        # Known-ahead drivers (R547): each period's own value, as a column.
+        for c in drv.columns:
+            X['drv_' + str(c)] = drv[c].reindex(y.index).to_numpy(dtype='float64')
     return X
 
 
-def _lag_forecast(model, history, lags, steps, t_start, future_idx=None, freq=None):
+def _lag_forecast(model, history, lags, steps, t_start, future_idx=None, freq=None, drv=None):
     import numpy as np
     import pandas as pd
     hist = list(history)
@@ -1850,6 +1854,9 @@ def _lag_forecast(model, history, lags, steps, t_start, future_idx=None, freq=No
         if cal is not None:
             for c in cal.columns:
                 row[c] = float(cal[c].iloc[i])
+        if drv is not None and future_idx is not None:
+            for c in drv.columns:
+                row['drv_' + str(c)] = float(drv[c].loc[future_idx[i]])
         yhat = float(model.predict(pd.DataFrame([row]))[0])
         out.append(yhat)
         hist.append(yhat)
@@ -1857,6 +1864,48 @@ def _lag_forecast(model, history, lags, steps, t_start, future_idx=None, freq=No
 
 
 _MAX_SERIES = 25
+_MAX_DRIVERS = 10
+_DRIVER_ALGOS = ('gradient_boosting_drivers', 'ridge_drivers')
+
+
+def _check_drivers(df, drivers, taken):
+    # A driver is a number known ahead of time: a planned price, a promotion
+    # flag, a holiday count. Refused, with the reason, when it is not one.
+    import pandas as pd
+    if len(drivers) > _MAX_DRIVERS:
+        raise RuntimeError('At most %d drivers; %d were named.' % (_MAX_DRIVERS, len(drivers)))
+    for c in drivers:
+        if c in taken:
+            raise RuntimeError('"%s" is already the time, target or series column, so it cannot also be a driver.' % c)
+        if c not in df.columns:
+            raise RuntimeError('The driver column "%s" is not in the data.' % c)
+        if pd.to_numeric(df[c], errors='coerce').notna().sum() == 0:
+            raise RuntimeError('The driver "%s" is not a number in any row: a driver must be numeric (a price, a count, a 0/1 flag).' % c)
+
+
+def _driver_frame(raw, tcol, drivers, freq, hist_idx, horizon, say):
+    # Known-ahead drivers (R547): one value per period for each, the mean of
+    # the rows in it, over the history AND the periods ahead. The rows past
+    # the last actual carry what the team already knows - a planned price, a
+    # promotion, a holiday - with the target left empty.
+    import pandas as pd
+    d = raw[[tcol] + drivers].dropna(subset=[tcol]).copy()
+    for c in drivers:
+        d[c] = pd.to_numeric(d[c], errors='coerce')
+    per = d.groupby(pd.Grouper(key=tcol, freq=freq))[drivers].mean()
+    ahead = pd.date_range(hist_idx[-1], periods=horizon + 1, freq=freq)[1:]
+    full = hist_idx.append(ahead)
+    per = per.reindex(full)
+    gaps = int(per.loc[hist_idx].isna().any(axis=1).sum())
+    unknown = int(per.loc[ahead].isna().any(axis=1).sum())
+    if gaps:
+        say('%d past period(s) had no value for a driver; the nearest known value was used.' % gaps)
+    # With none planned at all the caller does not use the drivers, and says
+    # so itself; this is for a plan with holes in it.
+    if 0 < unknown < horizon:
+        say('%d of the %d periods ahead had no value for a driver; the last known value was assumed for them. Add rows past the last actual, with the target empty, to say what is planned.' % (unknown, horizon))
+    per = per.ffill().bfill()
+    return per, unknown
 
 
 def _series_values(s, tcol, target, freq, agg, warnings_, label=None):
@@ -1904,7 +1953,7 @@ def _backtest_windows(n, holdout, min_train):
     return out
 
 
-def _forecast_one(y, freq, horizon, budget, warnings_, label=None):
+def _forecast_one(y, freq, horizon, budget, warnings_, label=None, drv=None):
     import numpy as np
     import pandas as pd
     say = (lambda m: warnings_.append(m)) if label is None else (lambda m: warnings_.append('%s: %s' % (label, m)))
@@ -1983,6 +2032,28 @@ def _forecast_one(y, freq, horizon, budget, warnings_, label=None):
         m.fit(X, tr.to_numpy()[lags:])
         return _lag_forecast(m, tr.to_numpy(), lags, steps, len(tr), future_index(tr, steps), freq)
 
+    def lag_model_drivers(tr, steps):
+        # The same lag model, told each period's drivers (R547). In a backtest
+        # the drivers of the held-out periods are their actual values, which
+        # is what known ahead means.
+        from sklearn.ensemble import HistGradientBoostingRegressor
+        X = _lag_frame(tr, lags, freq, drv).iloc[lags:]
+        m = HistGradientBoostingRegressor(random_state=42, max_iter=300)
+        m.fit(X, tr.to_numpy()[lags:])
+        return _lag_forecast(m, tr.to_numpy(), lags, steps, len(tr), future_index(tr, steps), freq, drv)
+
+    def ridge_drivers(tr, steps):
+        # A straight line through time and the drivers: for a short history,
+        # where the lag model has too few rows to learn from.
+        from sklearn.linear_model import Ridge
+        def frame(idx, start):
+            X = pd.DataFrame({'t': np.arange(start, start + len(idx), dtype='float64')})
+            for c in drv.columns:
+                X['drv_' + str(c)] = drv[c].reindex(idx).to_numpy(dtype='float64')
+            return X
+        m = Ridge(alpha=1.0).fit(frame(tr.index, 0), tr.to_numpy())
+        return m.predict(frame(future_index(tr, steps), len(tr)))
+
     consider('naive_last_value', naive)
     consider('moving_average', moving_average)
     if season:
@@ -1990,6 +2061,10 @@ def _forecast_one(y, freq, horizon, budget, warnings_, label=None):
     consider('holt_winters', holt_winters)
     if windows[-1][0] > lags + 10:
         consider('gradient_boosting_lags', lag_model)
+    if drv is not None:
+        consider('ridge_drivers', ridge_drivers)
+        if windows[-1][0] > lags + 10:
+            consider('gradient_boosting_drivers', lag_model_drivers)
     if best is None:
         raise RuntimeError('Every forecasting candidate failed. First error: ' + str(leaderboard[0].get('note', 'unknown')))
     leaderboard.sort(key=lambda r: (r['status'] != 'ok', r['value'] if r['value'] is not None else 1e18))
@@ -2023,9 +2098,18 @@ def _forecast_one(y, freq, horizon, budget, warnings_, label=None):
         'holdout_periods': float(holdout),
         'backtest_windows': float(len(windows)),
     }
+    # What the drivers were worth (R547): the best backtest with them against
+    # the best without, so a driver that did not help is seen not to.
+    effect = None
+    if drv is not None:
+        ok = [r for r in leaderboard if r['status'] == 'ok' and r['value'] is not None]
+        w = [r['value'] for r in ok if r['algorithm'] in _DRIVER_ALGOS]
+        wo = [r['value'] for r in ok if r['algorithm'] not in _DRIVER_ALGOS]
+        effect = {'with': min(w) if w else None, 'without': min(wo) if wo else None,
+                  'used': name in _DRIVER_ALGOS}
     return {'algorithm': name, 'season': season, 'lags': lags, 'sigma': sigma, 'holdout': holdout,
             'windows': len(windows), 'metrics': metrics, 'leaderboard': leaderboard, 'forecast': forecast,
-            'y': y, 'fit': fit}
+            'y': y, 'fit': fit, 'drivers_effect': effect}
 
 
 def _train_forecast(df, cfg, warnings_):
@@ -2037,12 +2121,20 @@ def _train_forecast(df, cfg, warnings_):
     horizon = int(cfg.get('horizon') or 12)
     agg = cfg.get('aggregation') or 'sum'
     budget = float(cfg.get('time_budget_minutes') or 30) * 60.0
+    # Known-ahead drivers (R547): a forecast's feature columns.
+    drivers = [c for c in (cfg.get('feature_columns') or []) if c]
     cols = [tcol, target] + ([scol] if scol else [])
     if scol and scol not in df.columns:
         raise RuntimeError('The series column "%s" is not in the data.' % scol)
-    s = df[cols].copy()
-    s[tcol] = pd.to_datetime(s[tcol], errors='coerce')
+    _check_drivers(df, drivers, set(cols))
+    raw = df[cols + drivers].copy()
+    raw[tcol] = pd.to_datetime(raw[tcol], errors='coerce')
+    if scol:
+        raw[scol] = raw[scol].fillna('(blank)').astype(str)
+    s = raw[cols].copy()
     s[target] = pd.to_numeric(s[target], errors='coerce')
+    # Rows with no target are dropped from the history; with drivers, those
+    # past the last actual are where the planned values come from.
     s = s.dropna(subset=[tcol, target])
     if len(s) < 8:
         raise RuntimeError('Forecasting needs at least 8 dated rows with a numeric target; found %d.' % len(s))
@@ -2050,15 +2142,22 @@ def _train_forecast(df, cfg, warnings_):
     # gaps between timestamps, which turns dated orders into a daily series.
     freq = _FREQ_BY_PERIOD.get(cfg.get('period') or 'auto') or _infer_freq(s[tcol])
     y = _series_values(s, tcol, target, freq, agg, warnings_)
-    one = _forecast_one(y, freq, horizon, budget, warnings_)
+    drv, assumed, unplanned = (None, 0, False)
+    if drivers:
+        drv, assumed = _driver_frame(raw, tcol, drivers, freq, y.index, horizon, warnings_.append)
+        if assumed >= horizon:
+            # FOUND FROM THE UI (R547): with no period ahead planned, the
+            # drivers' backtest edge came from knowing values the forecast will
+            # not have, so they are not used.
+            warnings_.append('None of the %d periods ahead had a planned value for the drivers, so the forecast does not use them. Put the planned values in rows past the last actual, with the target empty.' % horizon)
+            drv, unplanned = None, True
+    one = _forecast_one(y, freq, horizon, budget, warnings_, drv=drv)
 
     # Many series (R526): one forecast per value of the series column, each
     # with its own winner, beside the total above. The largest by volume come
     # first; past _MAX_SERIES the rest are named in a warning, not forecast.
     series_out, series_note = [], None
     if scol:
-        keys = s[scol].fillna('(blank)').astype(str)
-        s = s.assign(**{scol: keys})
         volume = s.groupby(scol)[target].apply(lambda v: float(np.abs(v).sum())).sort_values(ascending=False)
         chosen = list(volume.index[:_MAX_SERIES])
         if len(volume) > _MAX_SERIES:
@@ -2069,7 +2168,13 @@ def _train_forecast(df, cfg, warnings_):
             sub = s[s[scol] == key]
             try:
                 yk = _series_values(sub, tcol, target, freq, agg, warnings_, label=key)
-                r = _forecast_one(yk, freq, horizon, per_budget, warnings_, label=key)
+                drvk = None
+                if drivers:
+                    drvk, gone = _driver_frame(raw[raw[scol] == key], tcol, drivers, freq, yk.index, horizon,
+                                               lambda m, k=key: warnings_.append('%s: %s' % (k, m)))
+                    if gone >= horizon:
+                        drvk = None
+                r = _forecast_one(yk, freq, horizon, per_budget, warnings_, label=key, drv=drvk)
                 series_out.append({'key': key, 'algorithm': r['algorithm'], 'rmse': r['metrics']['rmse'],
                                    'periods': int(len(yk)), 'forecast': r['forecast'],
                                    'history': [{'period': _period_label(t, freq), 'y': _safe_float(v) or 0.0} for t, v in yk.tail(120).items()]})
@@ -2083,10 +2188,10 @@ def _train_forecast(df, cfg, warnings_):
                'aggregation': agg, 'time_column': tcol, 'target': target, 'sigma': one['sigma'],
                'series_column': scol, 'series': [x['key'] for x in series_out],
                'y_tail': y.tail(max(lags, season or 0, 1) + 1).to_numpy().tolist(),
-               'last_period': _period_label(y.index[-1], freq), 'trainer_version': 3}
-    if name == 'gradient_boosting_lags':
+               'last_period': _period_label(y.index[-1], freq), 'drivers': drivers, 'trainer_version': 4}
+    if name in ('gradient_boosting_lags', 'gradient_boosting_drivers'):
         from sklearn.ensemble import HistGradientBoostingRegressor
-        X = _lag_frame(y, lags, freq).iloc[lags:]
+        X = _lag_frame(y, lags, freq, drv if name == 'gradient_boosting_drivers' else None).iloc[lags:]
         m = HistGradientBoostingRegressor(random_state=42, max_iter=300)
         m.fit(X, y.to_numpy()[lags:])
         payload['model'] = m
@@ -2095,7 +2200,8 @@ def _train_forecast(df, cfg, warnings_):
     schema = [
         {'name': tcol, 'dtype': 'datetime', 'role': 'time'},
         {'name': target, 'dtype': 'numeric', 'role': 'target'},
-    ] + ([{'name': scol, 'dtype': 'categorical', 'role': 'series'}] if scol else [])
+    ] + ([{'name': scol, 'dtype': 'categorical', 'role': 'series'}] if scol else []) \
+      + [{'name': c, 'dtype': 'numeric', 'role': 'driver'} for c in drivers]
     return {
         'task': 'forecast', 'algorithm': name, 'metrics': one['metrics'], 'primary_metric': 'rmse',
         'leaderboard': one['leaderboard'], 'feature_importance': [], 'feature_schema': schema,
@@ -2104,7 +2210,9 @@ def _train_forecast(df, cfg, warnings_):
         'series_meta': {'freq': freq, 'period': _PERIOD_NAME.get(freq, freq), 'season_length': season, 'aggregation': agg,
                         'last_period': _period_label(y.index[-1], freq), 'periods': int(len(y)),
                         'backtest_windows': one['windows'], 'series_column': scol,
-                        'series_count': int(s[scol].nunique()) if scol else None, 'series_forecast': len(series_out) if scol else None},
+                        'series_count': int(s[scol].nunique()) if scol else None, 'series_forecast': len(series_out) if scol else None,
+                        'drivers': drivers, 'drivers_effect': one['drivers_effect'], 'drivers_assumed': assumed,
+                        'drivers_unplanned': unplanned},
         'tuning': {'mode': 'none', 'trials': 0}, '_artifact': buf.getvalue(),
     }
 

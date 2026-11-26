@@ -2528,7 +2528,11 @@ export async function resolveAgentTools(
               feature_columns: {
                 type: "array",
                 items: { type: "string" },
-                description: "Optional: only these columns as inputs (default: every other column)",
+                description:
+                  "Optional. classification, regression, clustering, anomaly: only these columns as " +
+                  "inputs (default: every other column). forecast: number columns known ahead " +
+                  "(a planned price, a promotion flag), whose planned values are in rows past the " +
+                  "last actual with the target empty; at most 10",
               },
             },
             required: ["task", "table"],

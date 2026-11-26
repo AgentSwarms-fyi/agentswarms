@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "forecast-drivers",
+    date: "2026-11-26",
+    title: "Forecasts that know what is planned",
+    body: "A forecast can now use numbers already planned for the periods ahead, such as a price change or a promotion. The backtest decides whether they help, and the model page says by how much.",
+    link: { to: "/ml/new" },
+    cta: "Train a forecast",
+  },
+  {
     id: "live-traffic-drift",
     date: "2026-11-26",
     title: "Drift on live traffic",

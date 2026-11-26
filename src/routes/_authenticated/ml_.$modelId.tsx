@@ -99,6 +99,7 @@ import { MlflowTrackingStrip, MlflowVersionCell } from "@/components/ml/MlflowTr
 import { parseModelTracking } from "@/lib/mlflowTracking";
 import { MLFLOW_TASKS, importedFlavor, importedSkops } from "@/lib/mlflowTasks";
 import { gpuLine, gpuReportOf } from "@/lib/mlGpu";
+import { driversLine, type DriversMeta } from "@/lib/mlForecastDrivers";
 
 // React 19's stricter JSX typing rejects recharts' class components — cast via any.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -1291,15 +1292,17 @@ function ForecastCard({
   forecast: {
     points: MlForecastPoint[];
     history: MlHistoryPoint[];
-    meta?: {
-      period?: string;
-      aggregation?: string;
-      periods?: number;
-      last_period?: string;
-      series_column?: string | null;
-      series_count?: number | null;
-      backtest_windows?: number;
-    } | null;
+    meta?:
+      | ({
+          period?: string;
+          aggregation?: string;
+          periods?: number;
+          last_period?: string;
+          series_column?: string | null;
+          series_count?: number | null;
+          backtest_windows?: number;
+        } & DriversMeta)
+      | null;
   };
 }) {
   const series = forecastSeriesOf(forecast);
@@ -1342,6 +1345,10 @@ function ForecastCard({
           History, the projected periods and a band from the backtest errors that widens with
           distance.
         </p>
+        {/* What the known-ahead drivers were worth, for the total (R547). */}
+        {!one && driversLine(meta) ? (
+          <p className="mb-3 text-xs text-muted-foreground">{driversLine(meta)}</p>
+        ) : null}
         <ForecastChart history={history} points={points} />
       </CardContent>
     </Card>

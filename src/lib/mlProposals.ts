@@ -17,6 +17,7 @@ import {
   type MlSource,
   type MlTask,
 } from "@/utils/ml/types";
+import { MAX_FORECAST_DRIVERS } from "@/lib/mlForecastDrivers";
 
 export const ML_TRAIN_ACTION = "ml.train";
 
@@ -256,7 +257,14 @@ export function checkAgainstColumns(p: MlTrainProposal, columns: TableColumn[]):
 
   if (p.feature_columns?.length) {
     const roles = new Set(
-      [out.target_column, out.time_column, out.user_column, out.item_column, out.rating_column]
+      [
+        out.target_column,
+        out.time_column,
+        out.series_column,
+        out.user_column,
+        out.item_column,
+        out.rating_column,
+      ]
         .filter(Boolean)
         .map((s) => s!.toLowerCase()),
     );
@@ -274,6 +282,23 @@ export function checkAgainstColumns(p: MlTrainProposal, columns: TableColumn[]):
         error:
           "feature_columns named only the column being predicted. Leave feature_columns out to read every other column, or name the input columns.",
       };
+    }
+    // A forecast's feature columns are its known-ahead drivers (R547):
+    // numbers whose planned values for the periods ahead are in the table.
+    if (p.task === "forecast") {
+      if (features.length > MAX_FORECAST_DRIVERS) {
+        return {
+          ok: false,
+          error: `A forecast takes at most ${MAX_FORECAST_DRIVERS} known-ahead columns; ${features.length} were named.`,
+        };
+      }
+      const notNumber = features.map((f) => find(f)!).find((c) => !isNumericType(c.type));
+      if (notNumber) {
+        return {
+          ok: false,
+          error: `"${notNumber.name}" holds ${notNumber.type}: a known-ahead column for a forecast is a number, such as a planned price or a 0/1 promotion flag.`,
+        };
+      }
     }
     out.feature_columns = features;
   }
@@ -302,6 +327,11 @@ export function describeProposal(p: MlTrainProposal): { title: string; lines: st
       `Along ${p.time_column}, ${p.horizon ?? 12} ${per}${(p.horizon ?? 12) === 1 ? "" : "s"} ahead.`,
     );
     if (p.series_column) lines.push(`One forecast per ${p.series_column}, beside the total.`);
+    if (p.feature_columns?.length) {
+      lines.push(
+        `Known ahead: ${p.feature_columns.join(", ")} (kept only if they help the backtest).`,
+      );
+    }
   } else if (p.time_column) {
     lines.push(`Rows in time order by ${p.time_column}: tested on the latest ones.`);
   }

@@ -2278,6 +2278,37 @@ migration `20261124000000`.
 **Periods ahead** can be changed when you retrain: that version, and the
 ones after it, project that many periods.
 
+### Known ahead: drivers
+
+Some of what moves a forecast is already planned: a price change, a
+promotion, a holiday. **Known ahead** in the wizard names up to ten number
+columns that hold it (R547). Put the planned values in rows past the last
+actual, with the target left empty: those rows are where the periods ahead
+read their drivers from.
+
+- **Each period's value is the mean of its rows**, in the history and ahead.
+- **Two methods use them:** the lag model with each period's drivers beside
+  its lags, and a straight line through time and the drivers, for a short
+  history. They are backtested beside the methods that do not, and the lowest
+  error serves. A driver that does not help is not used, and the model page
+  says so: "With them the backtest error (RMSE) was 2.18, against 24.51
+  without, so the forecast uses them", or "They did not help".
+- **In a backtest a driver's actual values are used**, which is what known
+  ahead means: a driver you cannot know in advance does not belong here.
+- **A period ahead with no planned value** takes the last known one, and the
+  version says how many periods it assumed.
+- **With no period ahead planned at all, the drivers are not used.** Their
+  backtest edge came from knowing values the forecast would not have, so a
+  forecast resting on "the last value carries on" is not offered as theirs;
+  the model page says to add the planned rows. (Found in the UI test, on a
+  real table with no rows past the last actual.)
+- **Refused, with the reason:** a column that is not a number in any row, or
+  is already the time, target or series column. A forecast per series reads
+  each series' own drivers.
+
+An agent proposing a forecast from chat names them as `feature_columns`, and
+the approval lists them.
+
 ## Sharing and governance
 
 Share a model from **Admin → IAM → Access** as **ML model**. A grantee can

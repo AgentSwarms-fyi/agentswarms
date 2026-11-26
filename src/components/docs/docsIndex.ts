@@ -3349,6 +3349,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "forecast-drivers",
+        "text": "Known ahead: drivers",
+        "level": 3
+      },
+      {
         "id": "forecasting",
         "text": "Forecasting in BI",
         "level": 2

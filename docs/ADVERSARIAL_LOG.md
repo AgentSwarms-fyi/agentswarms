@@ -109,6 +109,23 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-27 — R547: a forecast could not use what was already planned
+
+**Why this round.** Left open since R526: a forecast learned only from its own past, so a planned price change, a promotion or a holiday could not move it. Read as a planner who knows next month's promotions.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Planned values could not reach a forecast | S3 | **Found by the round's question.** **Known ahead** names up to ten number columns whose planned values sit in rows past the last actual, with the target empty. Two methods use them, backtested beside the rest. |
+| A driver would have been trusted because it was named | S3 | **Found in design.** The backtest decides: the lowest error serves, and the model page says what the drivers were worth, including "they did not help". Tested with a driver unrelated to the target, which is not used. |
+| With nothing planned, the drivers were used anyway | S2 | **Found in the UI test**, on a real table with no rows past the last actual. The drivers won a backtest in which they had the actual values, and the forecast then rested on "the last value carries on" for all twelve periods. With no period ahead planned the drivers are no longer used, and the card says what to add. |
+| A gap in the plan would have been filled silently | S4 | **Found in design.** A period ahead with no planned value takes the last known one, and the version says how many. |
+
+**Checked and sound.**
+- **The trainer is run, not read.** The tests run it in the sandbox image: a planted promotion effect is found and projected onto the planned days, and a forecast with no drivers gives the same winner and leaderboard as before.
+- **Refused with the reason:** a driver that is not a number in any row, or is the time, target or series column, and more than ten. Chat proposals take number columns only, and never the series column.
+- **No migration.** A forecast's feature columns are its drivers, and retrains carry them.
+- **Mutation-checked:** ignoring the planned values, and claiming the drivers were used when they were not, are each caught.
+
 ### 2026-11-26 — R546: the hourly live-traffic verdict was recorded but not said
 
 **Why this round.** R545 measured live traffic hourly and told the owner. But a model's health, the sentence that travels with it to ML operations, agents, the AI Analyst and the Playground, read only batch drift and accuracy. An agent scoring with a model whose live traffic had drifted that morning said nothing about it.

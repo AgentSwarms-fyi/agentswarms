@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-27 — R547: forecasts with known-ahead drivers
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab. A test model was trained for real in the sandbox: "R547 forecast with drivers (test)", from analytics.revenue_facts (kept for review).
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Train a model → Goal | net_usd, **Forecast** | **Known ahead (optional)** lists the one other number column, payment_rows, with what to put in the table |
+| Review | after ticking it | "KNOWN AHEAD payment_rows" |
+| Train | the model page | trained in about two minutes; the forecast card read "With them the backtest error (RMSE) was 1,919.11, against 1,951.76 without, so the forecast uses them. 12 periods ahead had no planned value, and the last known one was assumed". The table has no rows past the last actual, so every period ahead rested on an assumption, while the drivers' small backtest edge came from knowing the actual values (fixed: with no period ahead planned, the drivers are not used, and the card says to add the planned rows) |
+| Train new version | after the fix | v2 chose naive_last_value (RMSE 1,951.76), without the driver methods; its note reads "None of the 12 periods ahead had a planned value for the drivers, so the forecast does not use them. Put the planned values in rows past the last actual, with the target empty." Promoted on this test model, the card reads "Known ahead: payment_rows. None of the 12 periods ahead had a planned value, so the forecast does not use them: put the planned values in rows past the last actual, with the target empty." |
+
 ## 2026-11-26 — R546: live traffic in a model's health
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, with migration 20261207000000 applied. No model on this account has 200 online requests in a day, so no live-traffic verdict exists, and none was written to make one: the sentence, its place in the list and its tab were driven in the tests (`mlModelHealth.test.ts`, three mutations caught).

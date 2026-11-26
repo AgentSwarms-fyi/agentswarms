@@ -319,6 +319,15 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Forecasts with known-ahead drivers** (R547). **Known ahead** in the
+  wizard names up to ten number columns already planned for the periods ahead
+  (a price, a promotion flag, a holiday count); their planned values sit in
+  rows past the last actual, with the target empty. Two methods use them
+  (the lag model, and a straight line through time and the drivers), and the
+  backtest decides whether they serve: the model page says what they were
+  worth. A period with no planned value takes the last known one, and the
+  version says how many; with none planned at all the drivers are not used.
+  No migration: a forecast's feature columns are its drivers.
 - **Live traffic in a model's health** (R546). A drifted live-traffic verdict
   from the last two days is listed under ML operations → Needs a look (opening
   the Predictions tab) and travels with the model to agents, the AI Analyst
