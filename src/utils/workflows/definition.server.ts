@@ -11,7 +11,14 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import { validateCron } from "@/lib/cron";
 import {
+  ALERT_TRIGGER_SCHEMA,
+  alertTriggerOf,
+  normaliseAlertTrigger,
+  type AlertTrigger,
+} from "@/lib/workflowAlerts";
+import {
   definitionFromFile,
+  fileAlertModelNames,
   fileTargetNames,
   stepTarget,
   withTargetId,
@@ -42,6 +49,8 @@ export function definitionOfRow(row: Record<string, unknown>): WorkflowDefinitio
     overlap: (row.overlap as WorkflowDefinition["overlap"]) ?? "skip",
     notifyOn: (row.notify_on as WorkflowDefinition["notifyOn"]) ?? "failure",
     timeoutMinutes: Number(row.timeout_minutes ?? 240),
+    // Absent before migration 20261206000000: unknown, so a save leaves it.
+    alertTrigger: "alert_trigger" in row ? alertTriggerOf(row.alert_trigger) : undefined,
     graph: {
       nodes: Array.isArray(graph.nodes) ? graph.nodes : [],
       edges: Array.isArray(graph.edges) ? graph.edges : [],
@@ -75,36 +84,60 @@ export async function applyWorkflowDefinition(
 
   const { nextWorkflowRunAt } = await import("@/utils/workflows/run.server");
   const reclock = await scheduleDiffers(id, def);
-  let q = supabaseAdmin
-    .from("workflows")
-    .update({
-      name: def.name,
-      description: def.description ?? null,
-      graph: graph as unknown as Json,
-      schedule: def.schedule,
-      cron_expr: def.schedule === "cron" ? (def.cronExpr ?? null) : null,
-      timezone: def.timezone ?? null,
-      overlap: def.overlap,
-      notify_on: def.notifyOn,
-      timeout_minutes: def.timeoutMinutes,
-      params: (graph.params ?? []) as unknown as Json,
-      ...(isActive !== undefined ? { is_active: isActive } : {}),
-      // A schedule that changed needs a new clock; one that did not is left
-      // alone so saving a label does not postpone tonight's run.
-      ...(reclock
-        ? {
-            next_run_at:
-              def.schedule === "manual"
-                ? null
-                : nextWorkflowRunAt(def.schedule, new Date(), def.cronExpr, def.timezone),
-          }
-        : {}),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("user_id", userId);
-  if (opts.expectedUpdatedAt) q = q.eq("updated_at", opts.expectedUpdatedAt);
-  const { data: row, error } = await q.select("id, updated_at").maybeSingle();
+  const alert =
+    def.alertTrigger === undefined
+      ? {}
+      : {
+          alert_trigger: def.alertTrigger
+            ? (normaliseAlertTrigger(def.alertTrigger) as unknown as Json)
+            : null,
+        };
+  const write = (withAlert: boolean) => {
+    let q = supabaseAdmin
+      .from("workflows")
+      .update({
+        name: def.name,
+        description: def.description ?? null,
+        graph: graph as unknown as Json,
+        schedule: def.schedule,
+        cron_expr: def.schedule === "cron" ? (def.cronExpr ?? null) : null,
+        timezone: def.timezone ?? null,
+        overlap: def.overlap,
+        notify_on: def.notifyOn,
+        timeout_minutes: def.timeoutMinutes,
+        params: (graph.params ?? []) as unknown as Json,
+        ...(isActive !== undefined ? { is_active: isActive } : {}),
+        // A schedule that changed needs a new clock; one that did not is left
+        // alone so saving a label does not postpone tonight's run.
+        ...(reclock
+          ? {
+              next_run_at:
+                def.schedule === "manual"
+                  ? null
+                  : nextWorkflowRunAt(def.schedule, new Date(), def.cronExpr, def.timezone),
+            }
+          : {}),
+        ...(withAlert ? alert : {}),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .eq("user_id", userId);
+    if (opts.expectedUpdatedAt) q = q.eq("updated_at", opts.expectedUpdatedAt);
+    return q.select("id, updated_at").maybeSingle();
+  };
+  let { data: row, error } = await write(true);
+  if (error && "alert_trigger" in alert && missingAlertColumn(error.message)) {
+    // Before migration 20261206000000. Saving "no alert trigger" needs no
+    // column, so every other save still works; switching one on says why not.
+    if (def.alertTrigger) {
+      return {
+        ok: false,
+        error:
+          "Starting on a model alert needs migration 20261206000000 (supabase/migrations/20261206000000_workflow_alert_triggers.sql). Apply it with `npx supabase db push`, then save again.",
+      };
+    }
+    ({ data: row, error } = await write(false));
+  }
   if (error) {
     return {
       ok: false,
@@ -163,7 +196,56 @@ export async function validateDefinition(
   // Every target must still be the caller's own. Checked at SAVE as well as
   // at run, because "it silently stopped running that pipeline" is a much
   // worse discovery than a refusal at the moment you press Save.
-  return missingTargets(userId, graph, selfId ?? "");
+  const missing = await missingTargets(userId, graph, selfId ?? "");
+  if (missing) return missing;
+  return def.alertTrigger ? invalidAlertTrigger(userId, def.alertTrigger) : null;
+}
+
+/** PostgREST's words for a column this database does not have yet. */
+function missingAlertColumn(message: string): boolean {
+  return /alert_trigger/.test(message) && /column|schema cache/i.test(message);
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The caller's own models among `ids`, by id with their names. */
+async function ownModels(userId: string, ids: string[]): Promise<Map<string, string>> {
+  const wanted = [...new Set(ids)].filter((id) => UUID.test(id));
+  if (!wanted.length) return new Map();
+  const { data } = await supabaseAdmin
+    .from("ml_models")
+    .select("id, name")
+    .eq("user_id", userId)
+    .in("id", wanted);
+  return new Map((data ?? []).map((m) => [String(m.id), String(m.name)]));
+}
+
+/**
+ * Why an alert trigger cannot be saved, or null. Its models must be the
+ * caller's own: the starter only ever looks up the OWNER's workflows, so a
+ * foreign model could never start it anyway, and saying so beats a trigger
+ * that silently never fires.
+ */
+async function invalidAlertTrigger(userId: string, t: AlertTrigger): Promise<string | null> {
+  const parsed = ALERT_TRIGGER_SCHEMA.safeParse(t);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return `Starting on a model alert: ${issue?.message ?? "not valid"}`;
+  }
+  const own = await ownModels(userId, t.models);
+  if (t.models.some((id) => !own.has(id))) {
+    return "Starting on a model alert names a model that is gone, or is not yours.";
+  }
+  return null;
+}
+
+/** What the models whose alerts start a workflow are called, for writing its file. */
+export async function alertModelNames(
+  userId: string,
+  t: AlertTrigger | null | undefined,
+): Promise<Record<string, string>> {
+  if (!t) return {};
+  return Object.fromEntries(await ownModels(userId, t.models));
 }
 
 async function scheduleDiffers(
@@ -412,11 +494,57 @@ export async function resolveFileTargets(
       replaced.set(node.id, withTargetId(node, matches[0].id));
     }
   }
+  // The models whose alerts start it, found the same way (R544).
+  let alertTrigger = def.alertTrigger;
+  let renamedModels = 0;
+  if (alertTrigger) {
+    const own = await ownModels(userId, alertTrigger.models);
+    const lost = alertTrigger.models.filter((id) => !own.has(id));
+    if (lost.length) {
+      const names = fileAlertModelNames(file);
+      const wanted = [...new Set(lost.map((id) => names[id] ?? ""))].filter(Boolean);
+      const { data: byName } = wanted.length
+        ? await supabaseAdmin
+            .from("ml_models")
+            .select("id, name")
+            .eq("user_id", userId)
+            .in("name", wanted)
+        : { data: [] as { id: string; name: string }[] };
+      const swap = new Map<string, string>();
+      for (const id of lost) {
+        const name = names[id];
+        if (!name) {
+          return {
+            ok: false,
+            error:
+              "Starting on a model alert names a model that is not yours, and the file does not say its name",
+          };
+        }
+        const matches = (byName ?? []).filter((m) => m.name === name);
+        if (matches.length !== 1) {
+          return {
+            ok: false,
+            error:
+              matches.length === 0
+                ? `Starting on a model alert needs the model "${name}", and you have none by that name`
+                : `Starting on a model alert needs the model "${name}", and you have ${matches.length} by that name — rename one`,
+          };
+        }
+        swap.set(id, String(matches[0].id));
+      }
+      renamedModels = swap.size;
+      alertTrigger = {
+        ...alertTrigger,
+        models: alertTrigger.models.map((id) => swap.get(id) ?? id),
+      };
+    }
+  }
   return {
     ok: true,
-    renamed: replaced.size,
+    renamed: replaced.size + renamedModels,
     def: {
       ...def,
+      alertTrigger,
       graph: { ...def.graph, nodes: def.graph.nodes.map((n) => replaced.get(n.id) ?? n) },
     },
   };

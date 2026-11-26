@@ -109,6 +109,26 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-26 — R544: an alert said "retrain", and nothing could listen
+
+**Why this round.** The user's direction is MLOps on the platform's own orchestrator. After R540–R543, a pipeline could retrain, promote and deploy, and live in the team's repository. But the two signals that say a model needs that, drift and accuracy below training, ended as a notification, and someone had to read it and press Run. Read as a data scientist whose model drifts overnight, and as an operator worried about a loop that retrains forever.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A model's alert could not start anything | S3 | **Found by the round's question.** A workflow now names the models and alerts it answers (**Settings → Also start when a model alerts**). The alert starts it, and its notification says what it started. |
+| A re-measured alert would have retrained every day for a month | S2 | **Found in design.** Accuracy is re-measured daily for 30 days, and every pass about a degraded run raises the alert again. That includes runs scored by a version the pipeline has since replaced. Each alert now starts a workflow once (the run records the prediction it answered), and an alert about a version no longer in production starts nothing. |
+| Two alerts landing together would have started two runs | S2 | **Found in review.** The wait between alert starts is claimed with two conditional updates (`IS NULL`, then older than the wait), which Postgres re-checks under the row lock. It is not read and then written. Tested with two alerts at once. |
+| Someone a model is shared with could have spent the owner's compute | S2 | **Found in review.** A prediction run by a grantee raises the owner's alert. It still notifies the owner, but starts none of the owner's workflows: that would run the owner's retrain, and could move their production version. Accuracy is judged by who ran the scored rows, not by who asked for the measurement. |
+| A failed start would have used up the wait | S3 | **Found in review.** When the runner refuses (already running, no steps), the wait is given back, so the next alert may start it. |
+| Changing which alerts start a workflow left no audit row | S3 | **Found in review.** It decides when work runs, as a cron expression does, and the row-change trigger did not watch it. The migration adds `alert_trigger` to `audit_workflows`. |
+| An alert-started run would have read "Started by hand" | S4 | **Found in review.** The shared run vocabulary had no word for it: `normalizeTrigger` called anything unknown manual. It now reads "On a model alert", and the run history says which model and alert. |
+
+**Checked and sound.**
+- **Only the owner's workflows are looked up.** A workflow naming someone else's model id is never read by that model's alert (tested), and a save refuses one.
+- **Nothing breaks before the migration.** Every save without an alert trigger works (the write is retried without the column). Switching one on names the migration. Run history reads without `trigger_detail`. Alerts start nothing and fail nothing (all tested).
+- **Old repository files are byte-identical.** `onAlert` is written only when set. A file without it means none, so a pull switches it off. In another workspace its models are found by name, with the same refusals as steps.
+- **The alert's own path cannot fail because of this.** Any error is logged; the alert is still recorded and notified (tested with a dropped connection).
+
 ### 2026-11-26 — R543: notebooks could go into the repository but not come out of it
 
 **Why this round.** The user asked that people can connect their own repository. After R541 pipelines and models could go both ways, but a notebook could only be committed, and its history only listed the platform's own commits. A notebook a teammate wrote, or a change pushed to the file, could not come in. Read as a data scientist whose team keeps its notebooks in Git as .py and .ipynb files.

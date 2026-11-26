@@ -612,7 +612,8 @@ describe("nothing in the inspector asks for a notation", () => {
     // workflow's graph under another's name, and Save would write it over.
     const src = rd("src/routes/_authenticated/workflows.tsx");
     expect(src).toMatch(/let live = true;[\s\S]{0,400}?if \(!live\) return;/);
-    expect(src).toMatch(/if \(!live\) return;[\s\S]{0,900}?live = false;/);
+    // 1100: R544 read the alert trigger and its last note into the same load.
+    expect(src).toMatch(/if \(!live\) return;[\s\S]{0,1100}?live = false;/);
   });
 
   it("does not delete a header row that has no name yet", () => {
@@ -1117,7 +1118,12 @@ describe("the wiring", () => {
     expect(fns).toContain("resolveCaller");
     expect(fns).toContain("applyWorkflowDefinition(");
     const def = rd("src/utils/workflows/definition.server.ts");
-    expect(def).toContain('return missingTargets(userId, graph, selfId ?? "");');
+    expect(def).toContain('const missing = await missingTargets(userId, graph, selfId ?? "");');
+    expect(def).toContain("if (missing) return missing;");
+    // R544: an alert trigger may name only the caller's own models.
+    expect(def).toContain(
+      "return def.alertTrigger ? invalidAlertTrigger(userId, def.alertTrigger) : null;",
+    );
     // And the one write every source takes runs those checks first.
     expect(def).toMatch(
       /const invalid = await validateDefinition\(userId, def, id\);\s*if \(invalid\) return \{ ok: false, error: invalid \};/,

@@ -252,6 +252,12 @@ function PipelinesPage() {
                   <div className="grid shrink-0 grid-cols-2 gap-x-6 gap-y-1 text-xs">
                     <span className="text-muted-foreground">Runs</span>
                     <span>{triggerLine(p)}</span>
+                    {p.alert ? (
+                      <>
+                        <span className="text-muted-foreground">Also</span>
+                        <span className="max-w-56">{p.alert}</span>
+                      </>
+                    ) : null}
                     {p.is_active && p.schedule !== "manual" ? (
                       <>
                         <span className="text-muted-foreground">Next</span>
@@ -337,7 +343,9 @@ function PipelinesPage() {
                                 ? "a person"
                                 : r.trigger === "api"
                                   ? "an API call or CI"
-                                  : (r.trigger ?? "—")}
+                                  : r.trigger === "alert"
+                                    ? "a model alert"
+                                    : (r.trigger ?? "—")}
                           </td>
                           <td className="px-3 py-2.5 text-right text-xs tabular-nums text-muted-foreground">
                             {duration(r.started_at, r.finished_at) ?? "—"}

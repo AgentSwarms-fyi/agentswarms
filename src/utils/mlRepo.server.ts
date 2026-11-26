@@ -24,6 +24,7 @@ import {
   type GitExportConfig,
 } from "@/utils/git/exporter.server";
 import { gitTokenForUse, storedGitToken } from "@/utils/git/token.server";
+import { normaliseAlertTrigger } from "@/lib/workflowAlerts";
 import {
   definitionChanges,
   literalCredential,
@@ -43,6 +44,7 @@ import {
   type WorkflowFile,
 } from "@/lib/workflowFile";
 import {
+  alertModelNames,
   applyWorkflowDefinition,
   definitionOfRow,
   resolveFileTargets,
@@ -176,7 +178,11 @@ async function writeLink(
 /** The file the platform would write for this workflow now. */
 async function currentFile(userId: string, row: Record<string, unknown>): Promise<WorkflowFile> {
   const def = definitionOfRow(row);
-  return toWorkflowFile(def, await targetNamesFor(userId, def.graph));
+  return toWorkflowFile(
+    def,
+    await targetNamesFor(userId, def.graph),
+    await alertModelNames(userId, def.alertTrigger),
+  );
 }
 
 /** The hash of what the platform holds, comparable with a link's local_hash. */
@@ -577,6 +583,11 @@ export async function importWorkflowFromRepo(
       notify_on: def.notifyOn,
       timeout_minutes: def.timeoutMinutes,
       params: (def.graph.params ?? []) as unknown as Json,
+      // Written only when the file has one, so an import works before
+      // migration 20261206000000 for every file that does not (R544).
+      ...(def.alertTrigger
+        ? { alert_trigger: normaliseAlertTrigger(def.alertTrigger) as unknown as Json }
+        : {}),
       is_active: false,
     })
     .select("*")
@@ -587,7 +598,9 @@ export async function importWorkflowFromRepo(
       error:
         error?.code === "23505"
           ? `You already have a workflow named "${def.name}" — rename one of them first`
-          : (error?.message ?? "Could not create the workflow"),
+          : error && /alert_trigger/.test(error.message)
+            ? "This file starts on a model alert, which needs migration 20261206000000 (supabase/migrations/20261206000000_workflow_alert_triggers.sql). Apply it with `npx supabase db push`, then import again."
+            : (error?.message ?? "Could not create the workflow"),
     };
   }
   const id = String(created.id);

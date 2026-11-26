@@ -16,6 +16,11 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261206000000`** (R544) to let a workflow start when a
+  model alerts. It adds three columns to `workflows`, one to `workflow_runs`,
+  the `alert` run trigger, and `alert_trigger` to what the workflow audit
+  trigger watches. Until then every workflow saves and runs as before, and
+  switching the setting on says which migration to apply.
 - **Apply migration `20261205000000`** (R542) to save Promote model and
   Deploy model steps: it adds them to the step kinds a run records. Until
   then a workflow with one says the migration is missing when it runs; every
@@ -309,6 +314,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Pipelines that start when a model alerts** (R544).
+  - **Also start when a model alerts**, in a workflow's settings, picks models
+    and alerts (drift, scoring worse than training). The alert then starts
+    the workflow, and its notification says what it started.
+  - **Guarded against runaway starts.** Only the owner's own runs, scored by
+    the version in production, start anything; each alert starts a workflow
+    once, and an atomic wait (24 hours unless set) stands between alert
+    starts.
+  - **Visible where you look.** The settings show the last alert and what came
+    of it; the model's Automation tab lists the workflows that answer it; the
+    run history and ML pipelines say a run was started by an alert.
+  - **In the repository too**, as `onAlert`, with each model's name.
 - **Notebooks from your repository** (R543).
   - **Import from repo** on the Developer workspace makes a notebook from a
     file in the connected repository. It reads a `.py` with `# %%` cells (as

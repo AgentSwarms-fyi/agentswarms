@@ -435,6 +435,8 @@ export type MlPipelineView = {
   last: MlPipelineRun | null;
   /** A CI job or another system can start it (a trigger token exists). */
   has_trigger_token: boolean;
+  /** Which models' alerts start it, in words (R544); null when none do. */
+  alert: string | null;
 };
 
 export type MlPipelinesOverview = {
@@ -450,16 +452,21 @@ async function pipelinesFor(userId: string): Promise<{
 }> {
   const { isMlPipeline, pipelineSteps, kubeflowPipelinesIn, mlSchedulesIn, mlModelsIn } =
     await import("@/lib/mlPipelines");
+  const { alertTriggerOf, alertTriggerLine } = await import("@/lib/workflowAlerts");
+  // Every column, so the alert trigger (R544) is read where the database has
+  // it and simply absent where migration 20261206000000 is not applied yet.
   const { data: rows } = await supabaseAdmin
     .from("workflows")
-    .select(
-      "id, name, description, graph, schedule, cron_expr, is_active, next_run_at, updated_at, trigger_token_hash",
-    )
+    .select("*")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false })
     .limit(200);
-  const ml = (rows ?? []).filter((w) =>
-    isMlPipeline(w.graph as unknown as import("@/lib/workflows").WorkflowGraph),
+  const alertOf = (w: Record<string, unknown>) => alertTriggerOf(w.alert_trigger);
+  // A workflow that answers a model's alert is model work too, whatever its steps.
+  const ml = (rows ?? []).filter(
+    (w) =>
+      isMlPipeline(w.graph as unknown as import("@/lib/workflows").WorkflowGraph) ||
+      alertOf(w as Record<string, unknown>) !== null,
   );
   if (!ml.length) return { pipelines: [], runs: [] };
   const graphs = new Map(
@@ -493,6 +500,7 @@ async function pipelinesFor(userId: string): Promise<{
     ...new Set([
       ...(schedules ?? []).map((s) => s.model_id),
       ...ml.flatMap((w) => mlModelsIn(graphs.get(w.id)!)),
+      ...ml.flatMap((w) => alertOf(w as Record<string, unknown>)?.models ?? []),
     ]),
   ].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
   const { data: models } = modelIds.length
@@ -536,10 +544,70 @@ async function pipelinesFor(userId: string): Promise<{
       kubeflow: kubeflowPipelinesIn(g),
       last: allRuns.find((r) => r.workflow_id === w.id) ?? null,
       has_trigger_token: Boolean(w.trigger_token_hash),
+      alert:
+        alertTriggerLine(alertOf(w as Record<string, unknown>), (id) => modelName.get(id)) || null,
     };
   });
   return { pipelines, runs: allRuns };
 }
+
+// ── What starts when a model alerts (R544) ─────────────────────────────────
+
+export type ModelAlertWorkflow = {
+  id: string;
+  name: string;
+  is_active: boolean;
+  events: import("@/lib/workflowAlerts").AlertEvent[];
+  cooldownHours: number;
+  last: import("@/lib/workflowAlerts").AlertNote | null;
+};
+
+/**
+ * The caller's workflows that start when this model alerts, for the model's
+ * Automation tab. Only the OWNER's: their workflows are the only ones an
+ * alert on their model can start, so a person the model is shared with is
+ * shown none.
+ */
+export const modelAlertWorkflows = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), modelId: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; workflows: ModelAlertWorkflow[] } | { ok: false; error: string }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { alertTriggerOf, alertNoteOf } = await import("@/lib/workflowAlerts");
+      const { data: model } = await supabaseAdmin
+        .from("ml_models")
+        .select("id")
+        .eq("id", data.modelId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (!model) return { ok: true, workflows: [] };
+      const { data: rows, error } = await supabaseAdmin
+        .from("workflows")
+        .select("*")
+        .eq("user_id", userId)
+        .order("name")
+        .limit(200);
+      if (error) return { ok: false, error: error.message };
+      const out: ModelAlertWorkflow[] = [];
+      for (const w of rows ?? []) {
+        const t = alertTriggerOf((w as Record<string, unknown>).alert_trigger);
+        if (!t || !t.models.includes(data.modelId)) continue;
+        out.push({
+          id: String(w.id),
+          name: String(w.name),
+          is_active: Boolean(w.is_active),
+          events: t.events,
+          cooldownHours: t.cooldownHours,
+          last: alertNoteOf((w as Record<string, unknown>).alert_last),
+        });
+      }
+      return { ok: true, workflows: out };
+    },
+  );
 
 export const mlPipelinesOverview = createServerFn({ method: "POST" })
   .validator((input: unknown) => TOKEN.parse(input))

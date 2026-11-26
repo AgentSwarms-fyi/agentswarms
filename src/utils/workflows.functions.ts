@@ -20,6 +20,7 @@ import { MAX_NODES, WORKFLOW_NAME_MAX, type WorkflowNode } from "@/lib/workflows
 import { callerFailure } from "@/utils/callerLookup.server";
 import { unversionedSave } from "@/lib/saveVersion";
 import { WORKFLOW_NODE_SCHEMA } from "@/lib/workflowFile";
+import { ALERT_TRIGGER_SCHEMA } from "@/lib/workflowAlerts";
 import { applyWorkflowDefinition } from "@/utils/workflows/definition.server";
 
 type Fail = { ok: false; error: string };
@@ -72,6 +73,10 @@ export type WorkflowRowDto = {
   next_run_at: string | null;
   is_active: boolean;
   has_trigger_token: boolean;
+  /** The models and alerts that start it (R544); null for none or before the migration. */
+  alert_trigger: Json | null;
+  /** The last alert it heard and what came of it. */
+  alert_last: Json | null;
   last_run_at: string | null;
   last_run_status: string | null;
   /**
@@ -88,6 +93,8 @@ export type WorkflowRunDto = {
   workflow_id: string;
   state: string;
   trigger: string;
+  /** What started a run an alert started (R544). */
+  trigger_detail: Json | null;
   error: string | null;
   params: Json;
   started_at: string;
@@ -125,6 +132,8 @@ function toRow(row: Record<string, unknown>): WorkflowRowDto {
     is_active: Boolean(row.is_active),
     // The hash itself is never sent; only the fact that a token was minted.
     has_trigger_token: Boolean(row.trigger_token_hash),
+    alert_trigger: (row.alert_trigger ?? null) as Json | null,
+    alert_last: (row.alert_last ?? null) as Json | null,
     last_run_at: (row.last_run_at as string | null) ?? null,
     last_run_status: (row.last_run_status as string | null) ?? null,
     changed_since_last_run: null,
@@ -205,6 +214,8 @@ export const workflowSave = createServerFn({ method: "POST" })
         overlap: z.enum(["skip", "queue"]),
         notifyOn: z.enum(["never", "failure", "always"]),
         timeoutMinutes: z.number().int().min(1).max(10080),
+        // Null switches it off; left out, the stored one is kept (R544).
+        alertTrigger: ALERT_TRIGGER_SCHEMA.nullable().optional(),
         isActive: z.boolean(),
         nodes: z.array(NODE).max(MAX_NODES),
         edges: z
@@ -248,6 +259,7 @@ export const workflowSave = createServerFn({ method: "POST" })
           overlap: data.overlap,
           notifyOn: data.notifyOn,
           timeoutMinutes: data.timeoutMinutes,
+          alertTrigger: data.alertTrigger,
           graph: {
             nodes: data.nodes as WorkflowNode[],
             edges: data.edges,
@@ -406,6 +418,24 @@ export const workflowRevokeToken = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+const RUN_COLUMNS = "id, workflow_id, state, trigger, error, params, started_at, finished_at";
+
+type Read = { data: unknown; error: { message: string } | null };
+
+/**
+ * A read of runs with what started them. `trigger_detail` arrived with
+ * migration 20261206000000 (R544); on a database without it the same read is
+ * made without it, so the run history still opens.
+ */
+async function readRuns(read: (columns: string) => PromiseLike<Read>): Promise<Read> {
+  const first = await read(`${RUN_COLUMNS}, trigger_detail`);
+  if (first.error && /trigger_detail/.test(first.error.message)) return read(RUN_COLUMNS);
+  return first;
+}
+
+const withDetail = (r: Record<string, unknown>): WorkflowRunDto =>
+  ({ ...r, trigger_detail: (r.trigger_detail ?? null) as Json | null }) as WorkflowRunDto;
+
 export const workflowRunsList = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z
@@ -418,15 +448,20 @@ export const workflowRunsList = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<Fail | { ok: true; runs: WorkflowRunDto[] }> => {
     const userId = await resolveCaller(data.accessToken);
-    const { data: rows, error } = await supabaseAdmin
-      .from("workflow_runs")
-      .select("id, workflow_id, state, trigger, error, params, started_at, finished_at")
-      .eq("workflow_id", data.workflowId)
-      .eq("user_id", userId)
-      .order("started_at", { ascending: false })
-      .limit(data.limit ?? 20);
+    const { data: rows, error } = await readRuns((columns) =>
+      supabaseAdmin
+        .from("workflow_runs")
+        .select(columns)
+        .eq("workflow_id", data.workflowId)
+        .eq("user_id", userId)
+        .order("started_at", { ascending: false })
+        .limit(data.limit ?? 20),
+    );
     if (error) return { ok: false, error: error.message };
-    return { ok: true, runs: (rows ?? []) as WorkflowRunDto[] };
+    return {
+      ok: true,
+      runs: ((rows ?? []) as Record<string, unknown>[]).map(withDetail),
+    };
   });
 
 /**
@@ -457,12 +492,14 @@ export const workflowRunGet = createServerFn({ method: "POST" })
         const { advanceWorkflowRun } = await import("@/utils/workflows/run.server");
         void advanceWorkflowRun(data.runId).catch(() => {});
       }
-      const { data: run } = await supabaseAdmin
-        .from("workflow_runs")
-        .select("id, workflow_id, state, trigger, error, params, started_at, finished_at")
-        .eq("id", data.runId)
-        .eq("user_id", userId)
-        .maybeSingle();
+      const { data: run } = await readRuns((columns) =>
+        supabaseAdmin
+          .from("workflow_runs")
+          .select(columns)
+          .eq("id", data.runId)
+          .eq("user_id", userId)
+          .maybeSingle(),
+      );
       if (!run) return { ok: false, error: "Run not found" };
       const { data: nodes } = await supabaseAdmin
         .from("workflow_node_runs")
@@ -474,7 +511,7 @@ export const workflowRunGet = createServerFn({ method: "POST" })
         .order("created_at", { ascending: true });
       return {
         ok: true,
-        run: run as WorkflowRunDto,
+        run: withDetail(run as Record<string, unknown>),
         nodes: (nodes ?? []) as WorkflowNodeRunDto[],
       };
     },
@@ -492,7 +529,8 @@ export const workflowRunCancel = createServerFn({ method: "POST" })
 
 export type WorkflowCandidates = {
   pipelines: { id: string; name: string }[];
-  mlSchedules: { id: string; name: string; kind: string }[];
+  /** With the model each trains or scores, so an alert trigger can offer it (R544). */
+  mlSchedules: { id: string; name: string; kind: string; model_id: string }[];
   notebooks: { id: string; title: string }[];
   swarms: { id: string; name: string }[];
   prepFlows: { id: string; name: string }[];
@@ -531,7 +569,7 @@ export const workflowCandidates = createServerFn({ method: "POST" })
       supabaseAdmin.from("etl_pipelines").select("id, name").eq("user_id", userId).order("name"),
       supabaseAdmin
         .from("ml_schedules")
-        .select("id, name, kind")
+        .select("id, name, kind, model_id")
         .eq("user_id", userId)
         .order("name"),
       supabaseAdmin
@@ -569,6 +607,7 @@ export const workflowCandidates = createServerFn({ method: "POST" })
         id: String(s.id),
         name: String(s.name),
         kind: String(s.kind),
+        model_id: String(s.model_id),
       })),
       notebooks: (notebooks.data ?? []).map((n) => ({ id: String(n.id), title: String(n.title) })),
       swarms: named(swarms.data),

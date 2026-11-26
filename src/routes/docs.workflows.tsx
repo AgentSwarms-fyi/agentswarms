@@ -406,6 +406,45 @@ function WorkflowsDocs() {
         </li>
       </UL>
 
+      <H2 id="on-alert">Starting when a model alerts</H2>
+      <P>
+        A model raises two alerts by itself: <strong>drift</strong>, when the rows it scores no
+        longer look like the rows it learned from, and <strong>scoring worse than training</strong>,
+        measured against real outcomes. Under{" "}
+        <strong>Settings → Also start when a model alerts</strong>, a workflow names the models and
+        the alerts it answers, so a retrain, promote and deploy pipeline starts without anyone
+        reading the notification first. The notification then says what it started.
+      </P>
+      <UL>
+        <li>
+          <strong>The owner&apos;s own runs only.</strong> A prediction run by someone the model is
+          shared with still notifies the owner, and starts none of the owner&apos;s workflows.
+        </li>
+        <li>
+          <strong>The version in production only.</strong> An alert about a version since replaced
+          starts nothing: retraining again would answer a problem already answered.
+        </li>
+        <li>
+          <strong>Once per alert</strong>, however often the same run is measured.
+        </li>
+        <li>
+          <strong>A wait between alert starts</strong>, 24 hours unless set (1 hour to 30 days),
+          claimed atomically, so two alerts landing together start one run and a pipeline whose own
+          scoring drifts cannot loop.
+        </li>
+        <li>
+          <strong>Paused means paused.</strong> A workflow already running is not started again, and
+          the wait is given back.
+        </li>
+      </UL>
+      <P>
+        The settings show the last alert and what came of it, and the model&apos;s{" "}
+        <strong>Automation</strong> tab lists the workflows that act on its alerts. A run an alert
+        started is audited as <C>workflow.run</C> with <C>trigger: &quot;alert&quot;</C>. In a
+        repository file the trigger is <C>onAlert</C>, each model with its name. It needs migration{" "}
+        <C>20261206000000</C>.
+      </P>
+
       <H3 id="limits">Knobs</H3>
       <Table
         headers={["Setting", "Default", "What it does"]}

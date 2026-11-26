@@ -21,6 +21,8 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
 import { notifyUser } from "@/utils/notify.server";
+import { startedSentence } from "@/lib/workflowAlerts";
+import { alertStarts } from "@/utils/workflows/alertTriggers.server";
 import { runLakehouseStatement } from "@/utils/lakehouse/core.server";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 import {
@@ -270,12 +272,26 @@ export async function evaluatePrediction(
       },
     });
     const pct = decay === null ? "" : ` (${(decay * 100).toFixed(0)}% worse)`;
+    // A workflow may answer this alert (R544). Judged by who ran the scored
+    // rows, not by who asked for the measurement: the daily sweep measures as
+    // that run's own user.
+    const started = await alertStarts({
+      event: "decay",
+      modelId: model.id,
+      predictionId,
+      ranBy: prediction.user_id,
+      versionId: prediction.version_id ?? null,
+      score: decay,
+    });
     void notifyUser(model.user_id, {
       title: `"${model.name}" is scoring worse than it trained${pct}`,
       body:
         `Measured against real outcomes: ${metrics.primary_name} ${metrics.primary.toFixed(3)} ` +
         `against ${baseline?.toFixed(3) ?? "—"} at training, over ${metrics.matched} of ` +
-        `${scoredRows} scored rows. Retraining is the usual answer.`,
+        `${scoredRows} scored rows.` +
+        (started.length
+          ? startedSentence(started.map((s) => s.name))
+          : " Retraining is the usual answer."),
       link: `/ml/${model.id}`,
     });
   }

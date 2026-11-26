@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "pipelines-on-model-alerts",
+    date: "2026-11-26",
+    title: "Pipelines that start when a model alerts",
+    body: "An ML pipeline can now start itself when one of your models drifts or scores worse than it trained, so a retrain no longer waits for someone to read the alert.",
+    link: { to: "/ml/pipelines" },
+    cta: "Open ML pipelines",
+  },
+  {
     id: "notebooks-from-repo",
     date: "2026-11-26",
     title: "Notebooks from your repository",

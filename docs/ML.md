@@ -762,6 +762,21 @@ A typical pipeline:
 Each step points at one of your own models; another workspace reading the
 pipeline from a repository finds its own model by name.
 
+### Closing the loop
+
+A pipeline can start itself when a model alerts (R544). In the pipeline's
+settings, **Also start when a model alerts** picks the models and the alerts:
+drift, or scoring worse than training. Then the drift or accuracy alert that
+used to wait for someone to read it starts the retrain, and its notification
+says what it started.
+
+It starts only for alerts on runs the model's owner started, scored by the
+version in production. It starts once per alert, and waits 24 hours between
+alert starts unless set otherwise, so a pipeline whose own scoring drifts
+cannot loop. The model's **Automation** tab shows which pipelines answer its
+alerts and what the last alert did. The full rules are in
+[Workflows: starting when a model alerts](WORKFLOWS.md#starting-when-a-model-alerts).
+
 ## ML pipelines in your repository
 
 An ML pipeline can live as a file in your team's GitHub or GitLab repository,
@@ -847,8 +862,9 @@ moderate, above 0.25 the population has moved. A run above
 `ML_DRIFT_ALERT_PSI` (0.25 by default, edited under Admin → Developer
 runtime) is audited as `ml.drift.alert` and notifies the model's owner
 with the three most drifted features — the cue to retrain, or to schedule
-retraining. The public API returns the same numbers in
-`/api/ml/predict/status`.
+retraining. An ML pipeline can answer the alert itself and retrain then: see
+[Closing the loop](#closing-the-loop). The public API returns the same numbers
+in `/api/ml/predict/status`.
 
 ## Why this row got this answer
 
@@ -968,7 +984,8 @@ classification, `rmse` for a regression or forecast — on the rows that have an
 answer, then compares it to what the same metric was on the validation split
 when that version trained. A run more than `ML_DECAY_ALERT_RATIO` worse (0.10
 by default — ten per cent) is audited as `ml.decay.alert` and notifies the
-model's owner.
+model's owner. An ML pipeline can start on it: see
+[Closing the loop](#closing-the-loop).
 
 The number is a ratio rather than a metric value so it reads the same way for a
 metric that should go up and one that should go down: an f1 of 0.72 against a

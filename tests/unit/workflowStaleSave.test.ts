@@ -22,9 +22,13 @@ describe("workflowSave", () => {
     expect(fns).toMatch(
       /data\.overwrite\s*\? \{ overwrite: true \}\s*: \{ expectedUpdatedAt: data\.expectedUpdatedAt as string \}/,
     );
+    // R544 wrapped the write in `write(withAlert)`, so a database without
+    // migration 20261206000000 can be written again without the new column.
+    // Both tries land only on the version the page read.
     expect(server).toMatch(
-      /\.eq\("id", id\)\s*\.eq\("user_id", userId\);\s*if \(opts\.expectedUpdatedAt\) q = q\.eq\("updated_at", opts\.expectedUpdatedAt\);\s*const \{ data: row, error \} = await q\.select\("id, updated_at"\)\.maybeSingle\(\);/,
+      /\.eq\("id", id\)\s*\.eq\("user_id", userId\);\s*if \(opts\.expectedUpdatedAt\) q = q\.eq\("updated_at", opts\.expectedUpdatedAt\);\s*return q\.select\("id, updated_at"\)\.maybeSingle\(\);\s*\};\s*let \{ data: row, error \} = await write\(true\);/,
     );
+    expect(server).toContain("({ data: row, error } = await write(false));");
     expect(server).toContain("return { ok: true, updatedAt: String(row.updated_at) };");
   });
 

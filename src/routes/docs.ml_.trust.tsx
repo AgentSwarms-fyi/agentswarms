@@ -58,8 +58,9 @@ function MlTrustPage() {
         <strong>Drift</strong> badge shows the highest one: below 0.1 stable, 0.1–0.25 moderate,
         above 0.25 the population has moved. A run above <C>ML_DRIFT_ALERT_PSI</C> (0.25 by default)
         is audited as <C>ml.drift.alert</C> and notifies the model&apos;s owner with the three most
-        drifted features — the cue to retrain, or to schedule retraining. The public API returns the
-        same numbers in <C>/api/ml/predict/status</C>.
+        drifted features — the cue to retrain, or to schedule retraining, or to let an ML pipeline{" "}
+        <DocLink to="/docs/workflows#on-alert">start on the alert</DocLink>. The public API returns
+        the same numbers in <C>/api/ml/predict/status</C>.
       </P>
 
       <H2 id="explain">Why this row got this answer</H2>
@@ -170,8 +171,9 @@ function MlTrustPage() {
         <C>rmse</C> for a regression or forecast — on the rows that have an answer, then compares it
         to the same metric on the validation split when that version trained. A run more than{" "}
         <C>ML_DECAY_ALERT_RATIO</C> worse (0.10, ten per cent) is audited as <C>ml.decay.alert</C>{" "}
-        and notifies the owner. A ratio rather than a metric value, so it reads the same way for a
-        metric that should rise and one that should fall.
+        and notifies the owner, and can start an ML pipeline that answers it. A ratio rather than a
+        metric value, so it reads the same way for a metric that should rise and one that should
+        fall.
       </P>
       <P>
         It runs on the platform clock: answers arrive over hours or weeks, so each successful batch

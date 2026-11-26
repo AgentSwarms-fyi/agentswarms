@@ -267,6 +267,49 @@ The deploy is audited as `workflow.repo.deploy`. See
 [ML pipelines in your repository](ML.md#ml-pipelines-in-your-repository) for
 the file format and the CI jobs.
 
+## Starting when a model alerts
+
+A model raises two alerts by itself: **drift**, when the rows it scores no
+longer look like the rows it learned from (a PSI past `ML_DRIFT_ALERT_PSI`),
+and **scoring worse than training**, measured against real outcomes (past
+`ML_DECAY_ALERT_RATIO`). Under **Settings → Also start when a model alerts**, a
+workflow names the models and the alerts it answers. A retrain, promote and
+deploy pipeline then starts without anyone reading the notification first, and
+the notification ends by saying what it started. Switched on, the setting
+starts with the models the workflow's own steps train, promote or deploy.
+
+What decides whether an alert starts a run:
+
+- **The owner's own runs only.** A prediction run by someone the model is
+  shared with still notifies the owner. It starts none of the owner's
+  workflows: it would spend their compute, and could move their production
+  version.
+- **The version in production only.** Accuracy is re-measured every day for a
+  month, so an alert about a version that has since been replaced is common.
+  It starts nothing, because retraining again would answer a problem already
+  answered.
+- **Once per alert.** The same prediction run never starts the same workflow
+  twice, however often it is measured.
+- **A wait between alert starts**, 24 hours unless set (1 hour to 30 days). It
+  is claimed with a conditional update, so two alerts landing together start
+  one run, and a pipeline whose own scoring step drifts again cannot start
+  itself in a loop.
+- **Paused means paused.** A workflow already running is not started a second
+  time; the wait is given back, so the next alert may start it.
+
+The settings show the last alert the workflow heard and what came of it ("did
+not start it: the workflow is paused"). The model's **Automation** tab lists
+the workflows that act on its alerts. A run an alert started says so in the run
+history (`Drift on "churn" (PSI 0.31)`), and is audited as `workflow.run` with
+`trigger: "alert"`, the model, the alert and the prediction run.
+
+In a repository file the trigger is `onAlert`, each model written with its
+name, so another workspace finds its own model by name. A file without
+`onAlert` has none, so an update from the repository switches it off.
+
+It needs migration `20261206000000_workflow_alert_triggers.sql`. Until that is
+applied every other save works, and switching this on says what to apply.
+
 ## Who may run it, and what gets recorded
 
 ### Ownership
@@ -294,29 +337,31 @@ Two writers, and the split is deliberate.
 `workflows` table, so a create, a delete or a change to the shape of a workflow
 is recorded even by a write that never went through the app:
 
-| Action            | Written when                                                                |
-| ----------------- | --------------------------------------------------------------------------- |
-| `workflow.create` | A workflow row is inserted                                                  |
-| `workflow.update` | `name`, `graph`, `schedule`, `is_active`, `cron_expr` or `timezone` changes |
-| `workflow.delete` | The row is deleted                                                          |
+| Action            | Written when                                                                                 |
+| ----------------- | -------------------------------------------------------------------------------------------- |
+| `workflow.create` | A workflow row is inserted                                                                   |
+| `workflow.update` | `name`, `graph`, `schedule`, `is_active`, `cron_expr`, `timezone` or `alert_trigger` changes |
+| `workflow.delete` | The row is deleted                                                                           |
 
 `cron_expr` and `timezone` were added to that list in
 `20260896000000_workflow_audit_columns.sql`. Without them, moving a workflow
 from "07:00 on weekdays" to "every minute" — or from `Europe/London` to `UTC`,
 which shifts every run by an hour — changed when work ran across the platform
 and left no audit row at all, because `schedule` read `cron` on both sides.
+`alert_trigger` joined it in `20261206000000_workflow_alert_triggers.sql`, for
+the same reason: which alerts start a workflow decides when work runs.
 
 **The app writes what the database cannot see.** A run is not a row change on
 `workflows`, and neither is a refused bearer token:
 
-| Action                          | Written when                                                                                                                                       |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `workflow.run`                  | A run **starts**, with `trigger` (`manual`, `schedule`, `api`, `rerun`, `workflow`), the parameter names, and the parent run or the run it re-runs |
-| `workflow.run.finished`         | A run closes, with its outcome and error                                                                                                           |
-| `workflow.run.cancel`           | Somebody cancels a live run                                                                                                                        |
-| `workflow.trigger_token.rotate` | A bearer token is minted — the trigger does not watch `trigger_token_hash`                                                                         |
-| `workflow.trigger_token.revoke` | One is revoked                                                                                                                                     |
-| `workflow.trigger.denied`       | A bearer token was **refused** against a workflow that exists                                                                                      |
+| Action                          | Written when                                                                                                                                                                                                          |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workflow.run`                  | A run **starts**, with `trigger` (`manual`, `schedule`, `api`, `rerun`, `workflow`, `alert`), the parameter names, the parent run or the run it re-runs, and for an alert the model, the alert and the prediction run |
+| `workflow.run.finished`         | A run closes, with its outcome and error                                                                                                                                                                              |
+| `workflow.run.cancel`           | Somebody cancels a live run                                                                                                                                                                                           |
+| `workflow.trigger_token.rotate` | A bearer token is minted — the trigger does not watch `trigger_token_hash`                                                                                                                                            |
+| `workflow.trigger_token.revoke` | One is revoked                                                                                                                                                                                                        |
+| `workflow.trigger.denied`       | A bearer token was **refused** against a workflow that exists                                                                                                                                                         |
 
 Two decisions worth knowing:
 
@@ -448,7 +493,7 @@ nothing.
 
 A workflow runs **manually**, on one of four coarse schedules (hourly, daily,
 weekly), on a **cron expression with a timezone** (`0 7 * * 1-5` in
-`Europe/London`), or from the API above. An expression that stops parsing does
+`Europe/London`), from the API above, or [when a model alerts](#starting-when-a-model-alerts). An expression that stops parsing does
 not wedge the sweep for everyone else — that workflow simply stops being
 scheduled, which its `next_run_at` makes visible.
 
@@ -468,8 +513,8 @@ for up to a minute.
 
 | Table                | Holds                                                                                           |
 | -------------------- | ----------------------------------------------------------------------------------------------- |
-| `workflows`          | The graph, the schedule, active, and the last run's status.                                     |
-| `workflow_runs`      | One run: state, trigger, the pinned graph, timings.                                             |
+| `workflows`          | The graph, the schedule, active, the models whose alerts start it, and the last run's status.   |
+| `workflow_runs`      | One run: state, trigger (for an alert, what raised it), the pinned graph, timings.              |
 | `workflow_node_runs` | One step of one run: state, the id of the run it started in the other subsystem, and its error. |
 
 `workflow_node_runs.node_id` is the node's id inside the pinned graph, not a

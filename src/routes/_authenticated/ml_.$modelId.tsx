@@ -91,6 +91,7 @@ import { ModelCardDialog } from "@/components/ml/ModelCardDialog";
 import { DeploymentPanel } from "@/components/ml/DeploymentPanel";
 import { ModelFeatureView } from "@/components/ml/FeatureViewsPanel";
 import { SchedulesPanel } from "@/components/ml/SchedulesPanel";
+import { AlertPipelinesCard } from "@/components/ml/AlertPipelinesCard";
 import { ModelLineageCard } from "@/components/ml/ModelLineageCard";
 import { MlflowExportButton, MlflowImport } from "@/components/ml/MlflowControls";
 import { MlflowTrackingStrip, MlflowVersionCell } from "@/components/ml/MlflowTracking";
@@ -741,6 +742,8 @@ function ModelPage() {
             versions={versions}
           />
           <SchedulesPanel token={token} modelId={model.id} task={model.task} shared={shared} />
+          {/* What acts on this model's alerts (R544): its owner's workflows only. */}
+          {!shared ? <AlertPipelinesCard token={token} modelId={model.id} /> : null}
         </TabsContent>
 
         <TabsContent value="jobs" className="mt-4">

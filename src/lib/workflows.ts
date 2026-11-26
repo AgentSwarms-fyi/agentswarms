@@ -19,6 +19,8 @@
 // database. That is what lets the same decisions be tested exhaustively and
 // re-used by the runner, the editor and the run view without drifting.
 
+import { normaliseAlertTrigger, type AlertTrigger } from "@/lib/workflowAlerts";
+
 export const WORKFLOW_NAME_MAX = 120;
 export const MAX_NODES = 60;
 
@@ -225,6 +227,8 @@ export type WorkflowEditorSettings = {
   notifyOn: string;
   timeoutMinutes: number;
   isActive: boolean;
+  /** The models and alerts that start it (R544); null for none. */
+  alertTrigger?: AlertTrigger | null;
 };
 
 /**
@@ -244,6 +248,7 @@ export function savedForm(settings: WorkflowEditorSettings, graph: WorkflowGraph
     notifyOn: settings.notifyOn,
     timeoutMinutes: settings.timeoutMinutes,
     isActive: settings.isActive,
+    alertTrigger: settings.alertTrigger ? normaliseAlertTrigger(settings.alertTrigger) : null,
     nodes: graph.nodes,
     edges: graph.edges,
     params: graph.params ?? [],

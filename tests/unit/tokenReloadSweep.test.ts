@@ -267,6 +267,9 @@ const REVIEWED: Record<string, number> = {
   "src/components/integrations/TeamsTab.tsx": 1,
   "src/components/integrations/WarehousesTab.tsx": 1,
   "src/components/lakehouse/IcebergDialog.tsx": 1,
+  // R544: lists the workflows that start on this model's alerts. It holds
+  // nothing a person types, so a reload only refreshes the list.
+  "src/components/ml/AlertPipelinesCard.tsx": 1,
   "src/components/ml/FeatureViewsPanel.tsx": 2,
   "src/components/ml/ModelCardDialog.tsx": 1,
   "src/components/ml/PredictionsPanel.tsx": 2,

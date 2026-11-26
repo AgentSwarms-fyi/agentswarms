@@ -77,6 +77,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { StarButton } from "@/components/StarButton";
+import { AlertTriggerFields } from "@/components/workflows/AlertTriggerFields";
 import { StepInspector } from "@/components/workflows/StepInspector";
 import { WorkflowPalette } from "@/components/workflows/WorkflowPalette";
 import { KIND_STYLE, stepRunLink } from "@/components/workflows/nodeStyles";
@@ -105,6 +106,15 @@ import {
   type WorkflowNodeState,
   type WorkflowParam,
 } from "@/lib/workflows";
+import {
+  alertNoteOf,
+  alertRunLine,
+  alertTriggerOf,
+  modelsInGraph,
+  type AlertNote,
+  type AlertTrigger,
+} from "@/lib/workflowAlerts";
+import { TRIGGER_LABEL, normalizeTrigger } from "@/lib/runs";
 import {
   workflowCandidates,
   workflowCreate,
@@ -238,6 +248,8 @@ function WorkflowsPage() {
     timeoutMinutes: 720,
     isActive: true,
     hasToken: false,
+    alertTrigger: null as AlertTrigger | null,
+    alertLast: null as AlertNote | null,
   });
   const [graph, setGraph] = useState<WorkflowGraph>({ nodes: [], edges: [], params: [] });
   // What the open workflow is saved as (savedForm), set when it loads and when
@@ -356,6 +368,8 @@ function WorkflowsPage() {
         timeoutMinutes: w.timeout_minutes,
         isActive: w.is_active,
         hasToken: w.has_trigger_token,
+        alertTrigger: alertTriggerOf(w.alert_trigger),
+        alertLast: alertNoteOf(w.alert_last),
       };
       const loadedGraph = autoLayout(
         (w.graph ?? { nodes: [], edges: [] }) as unknown as WorkflowGraph,
@@ -477,6 +491,7 @@ function WorkflowsPage() {
           overlap: settings.overlap as "skip" | "queue",
           notifyOn: settings.notifyOn as "never" | "failure" | "always",
           timeoutMinutes: settings.timeoutMinutes,
+          alertTrigger: settings.alertTrigger,
           isActive: settings.isActive,
           nodes: graph.nodes,
           edges: graph.edges,
@@ -919,7 +934,9 @@ function WorkflowsPage() {
                     </Badge>
                     <span className="min-w-0 flex-1 truncate text-muted-foreground">
                       {formatDistanceToNow(new Date(r.started_at), { addSuffix: true })} ·{" "}
-                      {r.trigger}
+                      {r.trigger === "alert"
+                        ? alertRunLine(r.trigger_detail as Parameters<typeof alertRunLine>[0])
+                        : TRIGGER_LABEL[normalizeTrigger(r.trigger) ?? "manual"]}
                     </span>
                   </button>
                 ))}
@@ -1009,6 +1026,8 @@ function WorkflowsPage() {
         setSettings={setSettings}
         params={declared}
         onParamsChange={(params) => setGraph((g) => ({ ...g, params }))}
+        models={candidates.mlModels}
+        suggestedModels={modelsInGraph(graph, candidates.mlSchedules)}
         mintedToken={mintedToken}
         workflowId={selectedId}
         onRotate={async () => {
@@ -1254,6 +1273,8 @@ function SettingsDialog({
   setSettings,
   params,
   onParamsChange,
+  models,
+  suggestedModels,
   mintedToken,
   workflowId,
   onRotate,
@@ -1271,10 +1292,14 @@ function SettingsDialog({
     isActive: boolean;
     hasToken: boolean;
     name: string;
+    alertTrigger: AlertTrigger | null;
+    alertLast: AlertNote | null;
   };
   setSettings: React.Dispatch<React.SetStateAction<typeof settings>>;
   params: WorkflowParam[];
   onParamsChange: (p: WorkflowParam[]) => void;
+  models: WorkflowCandidates["mlModels"];
+  suggestedModels: string[];
   mintedToken: string | null;
   workflowId: string | null;
   onRotate: () => Promise<void>;
@@ -1341,6 +1366,14 @@ function SettingsDialog({
               </div>
             </div>
           ) : null}
+
+          <AlertTriggerFields
+            value={settings.alertTrigger}
+            onChange={(alertTrigger) => setSettings((s) => ({ ...s, alertTrigger }))}
+            models={models}
+            suggested={suggestedModels}
+            last={settings.alertLast}
+          />
 
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">

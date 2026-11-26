@@ -1169,6 +1169,9 @@ export type Database = {
           notify_on: string;
           trigger_token_hash: string | null;
           timeout_minutes: number;
+          alert_trigger: Json | null;
+          alert_started_at: string | null;
+          alert_last: Json | null;
         };
         Insert: {
           id?: string;
@@ -1190,6 +1193,9 @@ export type Database = {
           notify_on?: string;
           trigger_token_hash?: string | null;
           timeout_minutes?: number;
+          alert_trigger?: Json | null;
+          alert_started_at?: string | null;
+          alert_last?: Json | null;
         };
         Update: {
           id?: string;
@@ -1211,6 +1217,9 @@ export type Database = {
           notify_on?: string;
           trigger_token_hash?: string | null;
           timeout_minutes?: number;
+          alert_trigger?: Json | null;
+          alert_started_at?: string | null;
+          alert_last?: Json | null;
         };
         Relationships: [];
       };
@@ -1229,6 +1238,7 @@ export type Database = {
           branches: Json;
           parent_run_id: string | null;
           rerun_of: string | null;
+          trigger_detail: Json | null;
         };
         Insert: {
           id?: string;
@@ -1244,6 +1254,7 @@ export type Database = {
           branches?: Json;
           parent_run_id?: string | null;
           rerun_of?: string | null;
+          trigger_detail?: Json | null;
         };
         Update: {
           id?: string;
@@ -1259,6 +1270,7 @@ export type Database = {
           branches?: Json;
           parent_run_id?: string | null;
           rerun_of?: string | null;
+          trigger_detail?: Json | null;
         };
         Relationships: [];
       };

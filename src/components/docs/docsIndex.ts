@@ -6241,6 +6241,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "terms": [
       "200",
       "202",
+      "20261206000000",
       "404",
       "409",
       "422",
@@ -6253,13 +6254,15 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "cron_expr",
       "deployed",
       "false",
+      "onAlert",
       "one_success",
       "partial",
       "ref",
       "schedule",
       "trigger",
       "true",
-      "workflow.repo.deploy"
+      "workflow.repo.deploy",
+      "workflow.run"
     ],
     "headings": [
       {
@@ -6326,6 +6329,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "deploy-from-repo",
         "text": "Deploying from your repository",
         "level": 3
+      },
+      {
+        "id": "on-alert",
+        "text": "Starting when a model alerts",
+        "level": 2
       },
       {
         "id": "limits",

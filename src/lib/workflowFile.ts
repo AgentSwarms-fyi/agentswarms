@@ -9,7 +9,7 @@
 // exactly the rules a save from the editor is.
 //
 // WHAT GOES IN THE FILE is the definition: steps, arrows, schedule,
-// parameters. Whether the workflow is switched on stays in the platform,
+// parameters, and which models' alerts start it. Whether the workflow is switched on stays in the platform,
 // because pausing a pipeline at 2 a.m. should not need a pull request. Ids are
 // written, and each step that points at something also carries that thing's
 // NAME, so a file read into another workspace can find its own pipeline,
@@ -18,6 +18,14 @@
 // Pure: no database, no network, no crypto (the server hashes the text).
 import { z } from "zod";
 
+import {
+  ALERT_COOLDOWN_MAX_HOURS,
+  ALERT_EVENTS,
+  ALERT_MAX_MODELS,
+  normaliseAlertTrigger,
+  sameAlertTrigger,
+  type AlertTrigger,
+} from "@/lib/workflowAlerts";
 import {
   MAX_NODES,
   ML_DEPLOY_MODES,
@@ -107,6 +115,16 @@ const TARGET_HINT = z.object({
   model: z.string().min(1).max(200).optional(),
 });
 
+/** Which models' alerts start it (R544): ids, each with its name for another workspace. */
+const ALERT_FILE_SCHEMA = z.object({
+  models: z
+    .array(z.object({ id: z.string().max(64), name: z.string().min(1).max(200).optional() }))
+    .min(1)
+    .max(ALERT_MAX_MODELS),
+  events: z.array(z.enum(ALERT_EVENTS)).min(1).max(ALERT_EVENTS.length),
+  cooldownHours: z.number().int().min(1).max(ALERT_COOLDOWN_MAX_HOURS),
+});
+
 const FILE_SCHEMA = z.object({
   format: z.literal(WORKFLOW_FILE_FORMAT),
   version: z.literal(WORKFLOW_FILE_VERSION),
@@ -118,6 +136,7 @@ const FILE_SCHEMA = z.object({
   overlap: z.enum(WORKFLOW_OVERLAPS),
   notifyOn: z.enum(WORKFLOW_NOTIFY),
   timeoutMinutes: z.number().int().min(1).max(10080),
+  onAlert: ALERT_FILE_SCHEMA.optional(),
   params: z.array(WORKFLOW_PARAM_SCHEMA).max(30).optional(),
   steps: z.array(WORKFLOW_NODE_SCHEMA.extend({ target: TARGET_HINT.optional() })).max(MAX_NODES),
   edges: z.array(WORKFLOW_EDGE_SCHEMA).max(MAX_NODES * 4),
@@ -133,7 +152,18 @@ export type WorkflowDefinition = {
   overlap: (typeof WORKFLOW_OVERLAPS)[number];
   notifyOn: (typeof WORKFLOW_NOTIFY)[number];
   timeoutMinutes: number;
+  /**
+   * The models and alerts that start it (R544). Null: none. Undefined: not
+   * known (read before migration 20261206000000), so a save leaves it alone.
+   */
+  alertTrigger?: AlertTrigger | null;
   graph: WorkflowGraph;
+};
+
+export type WorkflowFileAlert = {
+  models: { id: string; name?: string }[];
+  events: AlertTrigger["events"];
+  cooldownHours: number;
 };
 
 export type TargetHint = { name: string; model?: string };
@@ -150,6 +180,7 @@ export type WorkflowFile = {
   overlap: WorkflowDefinition["overlap"];
   notifyOn: WorkflowDefinition["notifyOn"];
   timeoutMinutes: number;
+  onAlert?: WorkflowFileAlert;
   params: WorkflowParam[];
   steps: WorkflowFileStep[];
   edges: WorkflowEdge[];
@@ -229,12 +260,15 @@ function orderedStep(s: WorkflowFileStep): WorkflowFileStep {
 
 /**
  * The file for a definition. `names` maps a step id to the name of what it
- * points at (from the server, which can read the caller's own rows).
+ * points at, and `modelNames` a model id to its name, for the models whose
+ * alerts start it (both from the server, which can read the caller's rows).
  */
 export function toWorkflowFile(
   def: WorkflowDefinition,
   names: Record<string, TargetHint> = {},
+  modelNames: Record<string, string> = {},
 ): WorkflowFile {
+  const alert = def.alertTrigger ? normaliseAlertTrigger(def.alertTrigger) : null;
   return {
     format: WORKFLOW_FILE_FORMAT,
     version: WORKFLOW_FILE_VERSION,
@@ -246,6 +280,20 @@ export function toWorkflowFile(
     overlap: def.overlap,
     notifyOn: def.notifyOn,
     timeoutMinutes: def.timeoutMinutes,
+    // Only written when there is one, so every file written before R544 is
+    // still byte-identical (a linked file would otherwise read as changed).
+    ...(alert
+      ? {
+          onAlert: {
+            models: alert.models.map((id) => ({
+              id,
+              ...(modelNames[id] ? { name: modelNames[id] } : {}),
+            })),
+            events: alert.events,
+            cooldownHours: alert.cooldownHours,
+          },
+        }
+      : {}),
     params: (def.graph.params ?? []).map((p) => ({
       name: p.name,
       ...(p.default !== undefined ? { default: p.default } : {}),
@@ -319,6 +367,18 @@ export function parseWorkflowFile(text: string): ParsedWorkflowFile {
       overlap: f.overlap,
       notifyOn: f.notifyOn,
       timeoutMinutes: f.timeoutMinutes,
+      ...(f.onAlert
+        ? {
+            onAlert: {
+              models: f.onAlert.models.map((m) => ({
+                id: m.id,
+                ...(m.name ? { name: m.name } : {}),
+              })),
+              events: ALERT_EVENTS.filter((e) => f.onAlert?.events.includes(e)),
+              cooldownHours: f.onAlert.cooldownHours,
+            },
+          }
+        : {}),
       params: f.params ?? [],
       steps: f.steps.map((s) => orderedStep(s as WorkflowFileStep)),
       edges: f.edges,
@@ -337,12 +397,27 @@ export function definitionFromFile(file: WorkflowFile): WorkflowDefinition {
     overlap: file.overlap,
     notifyOn: file.notifyOn,
     timeoutMinutes: file.timeoutMinutes,
+    // A file with no onAlert means none: the repository is the authority.
+    alertTrigger: file.onAlert
+      ? {
+          models: file.onAlert.models.map((m) => m.id),
+          events: file.onAlert.events,
+          cooldownHours: file.onAlert.cooldownHours,
+        }
+      : null,
     graph: {
       nodes: file.steps.map(({ target: _target, ...n }) => n),
       edges: file.edges,
       params: file.params,
     },
   };
+}
+
+/** What each model whose alerts start it is called, by id (R544). */
+export function fileAlertModelNames(file: WorkflowFile): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of file.onAlert?.models ?? []) if (m.name) out[m.id] = m.name;
+  return out;
 }
 
 /** What a step in a file is called, by id: the hints a name lookup uses. */
@@ -396,6 +471,10 @@ export function definitionChanges(
     if (current.overlap !== next.overlap) settings.push("overlap");
     if (current.notifyOn !== next.notifyOn) settings.push("notifications");
     if (current.timeoutMinutes !== next.timeoutMinutes) settings.push("time limit");
+    // Undefined (read before the migration) is compared as none.
+    if (!sameAlertTrigger(current.alertTrigger ?? null, next.alertTrigger ?? null)) {
+      settings.push("model alerts");
+    }
     if (JSON.stringify(current.graph.params ?? []) !== JSON.stringify(next.graph.params ?? [])) {
       settings.push("parameters");
     }

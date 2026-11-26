@@ -39,6 +39,7 @@ import {
   type WorkflowNode,
   type WorkflowNodeState,
 } from "@/lib/workflows";
+import type { AlertRunDetail } from "@/lib/workflowAlerts";
 import { auditEvent } from "@/utils/audit.server";
 import { DETACHED, pollNode, startNode, type Settled } from "./adapters.server";
 
@@ -114,11 +115,13 @@ type StepOutcomeLike = { done: false } | { done: true; ok: true } | Settled;
  */
 export async function startWorkflowRun(
   workflow: WorkflowRow,
-  trigger: "manual" | "schedule" | "api" | "workflow" | "rerun",
+  trigger: "manual" | "schedule" | "api" | "workflow" | "rerun" | "alert",
   opts: {
     params?: Record<string, string>;
     parentRunId?: string;
     rerunOf?: string;
+    /** What started a run an alert started: the model, the alert, its run (R544). */
+    triggerDetail?: AlertRunDetail;
     /** Steps to carry over as already-succeeded, for a re-run from failure. */
     keep?: Record<string, WorkflowNodeState>;
   } = {},
@@ -152,6 +155,9 @@ export async function startWorkflowRun(
       branches: {} as unknown as Json,
       parent_run_id: opts.parentRunId ?? null,
       rerun_of: opts.rerunOf ?? null,
+      // Only written when there is one, so a run starts on a database that
+      // has not had migration 20261206000000 yet.
+      ...(opts.triggerDetail ? { trigger_detail: opts.triggerDetail as unknown as Json } : {}),
     })
     .select("id")
     .single();
@@ -174,6 +180,15 @@ export async function startWorkflowRun(
       params: Object.keys(params).sort(),
       ...(opts.parentRunId ? { parent_run_id: opts.parentRunId } : {}),
       ...(opts.rerunOf ? { rerun_of: opts.rerunOf } : {}),
+      ...(opts.triggerDetail
+        ? {
+            alert: {
+              event: opts.triggerDetail.event,
+              model_id: opts.triggerDetail.model_id,
+              prediction_id: opts.triggerDetail.prediction_id,
+            },
+          }
+        : {}),
     },
   });
 

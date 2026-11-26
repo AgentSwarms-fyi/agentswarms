@@ -329,12 +329,14 @@ describe("the Data science menu", () => {
     // query after it is scoped to those model ids.
     expect(fns.match(/await listModelsForUser\(userId\)/g)).toHaveLength(2);
     // Every read of an ml_ table, up to the next one, is narrowed to ids that
-    // came from that list (or from rows read through it).
+    // came from that list (or from rows read through it), or to the caller's
+    // OWN rows, which is narrower still: R544's "when this model alerts" reads
+    // the one model only when the caller owns it.
     const reads = fns.split('.from("ml_').slice(1);
     expect(reads.length).toBeGreaterThanOrEqual(9);
     for (const r of reads) {
       expect(r.slice(0, r.indexOf(";")), r.slice(0, 40)).toMatch(
-        /\.in\(\s*"(model_id|id|deployment_id)"/,
+        /\.in\(\s*"(model_id|id|deployment_id)"|\.eq\("user_id", userId\)/,
       );
     }
   });

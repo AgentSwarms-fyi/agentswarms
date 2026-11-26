@@ -11,6 +11,8 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
 import { notifyUser } from "@/utils/notify.server";
+import { startedSentence } from "@/lib/workflowAlerts";
+import { alertStarts } from "@/utils/workflows/alertTriggers.server";
 import { beginDecision, type DecisionKind } from "@/utils/provenance/decision.server";
 import { resultDigest } from "@/utils/provenance/canonical";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
@@ -553,9 +555,21 @@ export async function finalizePrediction(
       },
     });
     if (model) {
+      // A workflow may answer this alert (R544): asked first, so the one
+      // notification says what started. Never throws into the run's own path.
+      const started = await alertStarts({
+        event: "drift",
+        modelId: model.id,
+        predictionId: id,
+        ranBy: row.user_id,
+        versionId: row.version_id ?? null,
+        score: r.drift.score,
+      });
       void notifyUser(model.user_id, {
         title: `Drift on "${model.name}": PSI ${r.drift.score.toFixed(2)}`,
-        body: `The rows scored by run ${id.slice(0, 8)} differ from the training data (${top}). Consider retraining.`,
+        body:
+          `The rows scored by run ${id.slice(0, 8)} differ from the training data (${top}).` +
+          (started.length ? startedSentence(started.map((s) => s.name)) : " Consider retraining."),
         link: `/ml/${model.id}`,
       });
     }

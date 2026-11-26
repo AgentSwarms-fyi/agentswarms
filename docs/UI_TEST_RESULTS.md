@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-26 — R544: pipelines that start when a model alerts
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab. Migration 20261206000000 is not applied on this account, so this drove everything up to the database, and the promise that nothing changes before the migration. An alert starting a run was driven in the tests (`workflowAlerts.test.ts`: the starter over an in-memory database, every guard mutation-checked).
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Workflow editor → Runs | the run history of "ML pipeline" | opens before the migration (the read falls back without `trigger_detail`); runs read "Started by hand", no longer the raw `manual` |
+| Settings | the new section | **Also start when a model alerts**, off, with one line on what it does |
+| Same | switched on | the Retrain step's model is ticked first and marked "in this workflow"; both alerts ticked; wait 24 hours; the rule line under it |
+| Save | with it on | refused, naming migration 20261206000000 and the file; the editor still says "Unsaved changes", so nothing was lost |
+| Same | switched off again | "Unsaved changes" goes (the unsaved check counts the trigger); Save answers **Saved**, so every save without one works before the migration |
+| ML pipelines | the page | reads as before, no "Also" line with no trigger set |
+| A model → Automation | the new card | **When this model alerts**: "You are notified, and nothing starts", with a link that lands on ML pipelines |
+| Docs → Workflows | `#on-alert` | the section renders |
+
 ## 2026-11-26 — R543: notebooks from your repository
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab. No repository is connected on this account and none was connected for the test: settings saved for a test could not be taken out again, and the account's BI Git sync would show them. So importing, committing back and updating were driven in the tests (`notebookRepo.test.ts`: the formats round-trip, the platform's own files read back unchanged, the server's paths pinned); here, everything up to the repository.

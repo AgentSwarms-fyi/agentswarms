@@ -100,7 +100,7 @@ export function normalizeStatus(raw: string | null | undefined): RunStatus {
   );
 }
 
-export type RunTrigger = "manual" | "schedule" | "api" | "chain" | "retry";
+export type RunTrigger = "manual" | "schedule" | "api" | "chain" | "retry" | "alert";
 
 export function normalizeTrigger(raw: string | null | undefined): RunTrigger | null {
   const t = String(raw ?? "")
@@ -111,6 +111,8 @@ export function normalizeTrigger(raw: string | null | undefined): RunTrigger | n
   if (t === "api" || t === "webhook" || t === "trigger") return "api";
   if (t === "chain" || t === "pipeline" || t === "workflow") return "chain";
   if (t === "rerun" || t === "retry") return "retry";
+  // A workflow a model's drift or accuracy alert started (R544).
+  if (t === "alert") return "alert";
   return "manual";
 }
 
@@ -120,6 +122,7 @@ export const TRIGGER_LABEL: Record<RunTrigger, string> = {
   api: "From the API",
   chain: "Started by another run",
   retry: "A retry",
+  alert: "On a model alert",
 };
 
 /**
