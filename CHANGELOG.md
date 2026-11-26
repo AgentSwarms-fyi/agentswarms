@@ -16,6 +16,10 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261205000000`** (R542) to save Promote model and
+  Deploy model steps: it adds them to the step kinds a run records. Until
+  then a workflow with one says the migration is missing when it runs; every
+  other step works as before.
 - **Apply migration `20261204000000`** (R541) to keep ML pipelines in your
   repository: it adds the table that remembers which file a pipeline is kept
   in. Until then the ML pipelines page lists pipelines as before and says the
@@ -305,6 +309,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Promote model and Deploy model steps** (R542). An ML pipeline can finish
+  what its retrain starts.
+  - **Promote model** puts the newest trained version into production. By
+    default it does so only when the version beats production on the model's
+    main score; otherwise production is kept and the step still succeeds.
+  - **On a model with approvers it asks them**, and waits until the version is
+    production. It reads the model, never the request.
+  - **Deploy model** serves production on the model's endpoint (starting it or
+    moving it to the production version). It can also try the newest version
+    as a canary (1% to 50% of requests) or a shadow.
+  - ML pipelines lists the models these steps name. A pipeline saved to a
+    repository writes their configuration beside it.
 - **ML pipelines in your own GitHub or GitLab repository** (R541).
   - **Integrations → Git repository** connects the repository once: provider,
     repository, branch, folder and a token from Secrets, with **Save and
@@ -811,6 +827,11 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A workflow with a step the database did not know yet failed in the
+  database's words** (R542). A run on a database without the migration for a
+  Kubeflow, Promote or Deploy step failed with "violates check constraint
+  workflow_node_runs_kind_check". It now names the migration the steps need.
+  The workflow list also kept "succeeded" for such a run, and now says failed.
 - **A gated model could still be promoted without its approver** (R541).
   With approvers named, **Promote** asked them, but a scheduled retrain set to
   promote when better and the registration API's `promote` went straight to

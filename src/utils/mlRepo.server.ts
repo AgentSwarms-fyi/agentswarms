@@ -196,13 +196,18 @@ async function modelFilesFor(
   const scheduleIds = file.steps
     .filter((s) => s.kind === "ml_schedule" && s.targetId)
     .map((s) => String(s.targetId));
-  if (!scheduleIds.length) return [];
-  const { data: picked } = await supabaseAdmin
-    .from("ml_schedules")
-    .select("model_id")
-    .eq("user_id", userId)
-    .in("id", scheduleIds);
-  const modelIds = [...new Set((picked ?? []).map((r) => String(r.model_id)))];
+  // A Promote or Deploy step names its model directly (R542).
+  const direct = file.steps
+    .filter((s) => (s.kind === "ml_promote" || s.kind === "ml_deploy") && s.targetId)
+    .map((s) => String(s.targetId));
+  const { data: picked } = scheduleIds.length
+    ? await supabaseAdmin
+        .from("ml_schedules")
+        .select("model_id")
+        .eq("user_id", userId)
+        .in("id", scheduleIds)
+    : { data: [] as { model_id: string }[] };
+  const modelIds = [...new Set([...(picked ?? []).map((r) => String(r.model_id)), ...direct])];
   if (!modelIds.length) return [];
   const [{ data: models }, { data: schedules }] = await Promise.all([
     supabaseAdmin.from("ml_models").select("*").eq("user_id", userId).in("id", modelIds),

@@ -34,6 +34,8 @@ export const NODE_KINDS = [
   "pipeline",
   "sql_models",
   "ml_schedule",
+  "ml_promote",
+  "ml_deploy",
   "notebook",
   "sql",
   "swarm",
@@ -56,6 +58,8 @@ export const NODE_KIND_LABEL: Record<WorkflowNodeKind, string> = {
   pipeline: "ETL pipeline",
   sql_models: "SQL models",
   ml_schedule: "ML schedule",
+  ml_promote: "Promote model",
+  ml_deploy: "Deploy model",
   notebook: "Notebook",
   sql: "SQL statement",
   swarm: "Swarm",
@@ -83,6 +87,8 @@ export const CONTROL_KINDS: readonly WorkflowNodeKind[] = [
 export const TARGET_ID_KINDS: readonly WorkflowNodeKind[] = [
   "pipeline",
   "ml_schedule",
+  "ml_promote",
+  "ml_deploy",
   "notebook",
   "swarm",
   "prep_flow",
@@ -133,6 +139,22 @@ export type WorkflowNode = {
     body?: string;
     /** Response statuses that count as success. Empty = any 2xx. */
     okStatuses?: number[];
+  };
+  /**
+   * `ml_promote` and `ml_deploy` (R542): what to do with the model the step
+   * points at (`targetId`, one of the owner's ML models).
+   */
+  ml?: {
+    /** `ml_promote`: only when the newest version beats production. Default on. */
+    onlyIfBetter?: boolean;
+    /**
+     * `ml_deploy`: serve production on the model's endpoint, or try its newest
+     * version beside production, answering a share of requests (canary) or
+     * none (shadow).
+     */
+    mode?: MlDeployMode;
+    /** `ml_deploy` canary: the share of requests the new version answers. */
+    percent?: number;
   };
   /**
    * `kubeflow_run` (R540): a pipeline on one of the owner's Kubeflow
@@ -818,6 +840,20 @@ export function validateNodeTarget(n: WorkflowNode, named: string): string | nul
       }
       return null;
     }
+    case "ml_promote":
+      return n.targetId ? null : `The promote step "${named}" has no model chosen`;
+    case "ml_deploy": {
+      if (!n.targetId) return `The deploy step "${named}" has no model chosen`;
+      const mode = n.ml?.mode ?? "production";
+      if (!ML_DEPLOY_MODES.includes(mode)) return `The deploy step "${named}" has an unknown mode`;
+      if (mode === "canary") {
+        const p = n.ml?.percent ?? 0;
+        if (!Number.isInteger(p) || p < 1 || p > ML_CANARY_MAX_PERCENT) {
+          return `A canary sends 1% to ${ML_CANARY_MAX_PERCENT}% of requests to the new version; promote it to send more`;
+        }
+      }
+      return null;
+    }
     case "kubeflow_run": {
       const k = n.kubeflow;
       if (!k?.integrationId) return `The Kubeflow step "${named}" has no connection chosen`;
@@ -838,6 +874,15 @@ export function validateNodeTarget(n: WorkflowNode, named: string): string | nul
 }
 
 /** A Kubeflow pipeline's input names, as its compiler writes them. */
+export const ML_DEPLOY_MODES = ["production", "canary", "shadow"] as const;
+export type MlDeployMode = (typeof ML_DEPLOY_MODES)[number];
+/**
+ * The most an automated canary may send to an unpromoted version. Past half,
+ * the new version is answering most customers without anybody having
+ * promoted it: that is a promotion, and a Promote step asks for one.
+ */
+export const ML_CANARY_MAX_PERCENT = 50;
+
 export const KUBEFLOW_PARAM_NAME = /^[A-Za-z_][A-Za-z0-9_-]{0,99}$/;
 export const KUBEFLOW_MAX_PARAMETERS = 50;
 

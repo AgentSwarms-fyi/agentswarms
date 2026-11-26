@@ -25,25 +25,27 @@ both the orders pipeline and the customers model have finished" is not
 expressible as a chain, so the workaround is to stagger cron times and hope the
 first is done before the second starts. That hope is what a workflow removes.
 
-## The sixteen kinds of step
+## The eighteen kinds of step
 
-Nine of them start work the platform already knows how to do. Three reach
+Eleven of them start work the platform already knows how to do. Three reach
 outside it. Four are control flow, which every orchestrator has to own itself
 because it is about the graph rather than about any one system.
 
 ### Work
 
-| Kind                | What it starts                                       | How it is watched                                                      |
-| ------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
-| `pipeline`          | `startEtlRun(pipeline, "chain", params)`             | polls `etl_runs.status`                                                |
-| `sql_models`        | `buildSqlModels({ selected, trigger: "chain" })`     | polls `sql_model_runs.status`                                          |
-| `sql`               | `runLakehouseStatement(userId, sql)`                 | detached; settles its own step                                         |
-| `prep_flow`         | `refreshPrepFlowServer(flowId)`                      | detached                                                               |
-| `ml_schedule`       | `runMlSchedule(schedule, "workflow")`                | polls `ml_training_jobs` or `ml_predictions`, by the schedule's `kind` |
-| `notebook`          | `startSession({ kind: "batch" })`                    | polls `notebook_runtime_sessions.status`                               |
-| `swarm`             | `executeSwarmServer(...)` on the **published** graph | detached                                                               |
-| `dashboard_refresh` | `refreshDashboardServer(dashboardId)`                | detached                                                               |
-| `data_monitor`      | `runDataMonitor(monitor, "pipeline")`                | detached                                                               |
+| Kind                | What it starts                                                                                    | How it is watched                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `pipeline`          | `startEtlRun(pipeline, "chain", params)`                                                          | polls `etl_runs.status`                                                                          |
+| `sql_models`        | `buildSqlModels({ selected, trigger: "chain" })`                                                  | polls `sql_model_runs.status`                                                                    |
+| `sql`               | `runLakehouseStatement(userId, sql)`                                                              | detached; settles its own step                                                                   |
+| `prep_flow`         | `refreshPrepFlowServer(flowId)`                                                                   | detached                                                                                         |
+| `ml_schedule`       | `runMlSchedule(schedule, "workflow")`                                                             | polls `ml_training_jobs` or `ml_predictions`, by the schedule's `kind`                           |
+| `ml_promote`        | the model's newest ready version into production, through its approval gate (R542)                | at once on a model without approvers; else polls the request until the version **is** production |
+| `ml_deploy`         | `ensureDeployment` on the production version, or `setCandidate` (canary or shadow) for the newest | detached; settles when the endpoint can score                                                    |
+| `notebook`          | `startSession({ kind: "batch" })`                                                                 | polls `notebook_runtime_sessions.status`                                                         |
+| `swarm`             | `executeSwarmServer(...)` on the **published** graph                                              | detached                                                                                         |
+| `dashboard_refresh` | `refreshDashboardServer(dashboardId)`                                                             | detached                                                                                         |
+| `data_monitor`      | `runDataMonitor(monitor, "pipeline")`                                                             | detached                                                                                         |
 
 ### Reaching outside
 

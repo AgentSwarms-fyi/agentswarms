@@ -6,6 +6,7 @@
 // glance, before you have read a single label. The families are the same ones
 // the palette groups by, so the canvas and the picker teach each other.
 import {
+  ArrowBigUpDash,
   Bell,
   Blocks,
   Boxes,
@@ -19,6 +20,7 @@ import {
   LayoutDashboard,
   Network,
   NotebookPen,
+  Rocket,
   Timer,
   Wand2,
   Waypoints,
@@ -75,6 +77,20 @@ export const KIND_STYLE: Record<WorkflowNodeKind, KindStyle> = {
     chip: "bg-violet-500/15 text-violet-600 dark:text-violet-400",
     tile: "border-violet-500/40 bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-300",
     blurb: "Retrain, or predict a batch",
+  },
+  ml_promote: {
+    icon: ArrowBigUpDash,
+    ring: "border-blue-500/60",
+    chip: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+    tile: "border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-300",
+    blurb: "Put the newest version in production",
+  },
+  ml_deploy: {
+    icon: Rocket,
+    ring: "border-green-500/60",
+    chip: "bg-green-500/15 text-green-600 dark:text-green-400",
+    tile: "border-green-500/40 bg-green-500/10 hover:bg-green-500/20 text-green-700 dark:text-green-300",
+    blurb: "Serve it, or try it on some traffic",
   },
   notebook: {
     icon: NotebookPen,
@@ -165,7 +181,7 @@ export const KIND_GROUPS: { label: string; hint: string; kinds: WorkflowNodeKind
   {
     label: "Models and agents",
     hint: "What runs on top of those tables",
-    kinds: ["ml_schedule", "kubeflow_run", "notebook", "swarm"],
+    kinds: ["ml_schedule", "ml_promote", "ml_deploy", "kubeflow_run", "notebook", "swarm"],
   },
   {
     label: "Publish and check",

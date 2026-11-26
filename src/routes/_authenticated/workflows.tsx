@@ -272,6 +272,7 @@ function WorkflowsPage() {
     monitors: [],
     workflows: [],
     models: [],
+    mlModels: [],
     secrets: [],
   });
   const [runs, setRuns] = useState<WorkflowRunDto[]>([]);
@@ -435,6 +436,13 @@ function WorkflowsPage() {
       waitSeconds: kind === "wait" ? 60 : undefined,
       http: kind === "http" ? { method: "POST", url: "" } : undefined,
       kubeflow: kind === "kubeflow_run" ? { integrationId: "", pipelineId: "" } : undefined,
+      // Promote only when better, and serve production: the safe defaults.
+      ml:
+        kind === "ml_promote"
+          ? { onlyIfBetter: true }
+          : kind === "ml_deploy"
+            ? { mode: "production" }
+            : undefined,
       x: 60 + graph.nodes.length * 40,
       y: 60 + (graph.nodes.length % 5) * 90,
     };

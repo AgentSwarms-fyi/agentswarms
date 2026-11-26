@@ -186,6 +186,8 @@ async function scheduleDiffers(
 const TARGET_TABLES = [
   ["pipeline", "etl_pipelines", "pipeline"],
   ["ml_schedule", "ml_schedules", "ML schedule"],
+  ["ml_promote", "ml_models", "model"],
+  ["ml_deploy", "ml_models", "model"],
   ["notebook", "user_python_notebooks", "notebook"],
   ["swarm", "swarms", "swarm"],
   ["prep_flow", "user_prep_flows", "prep flow"],
@@ -258,6 +260,8 @@ type NamedRow = { id: string; name: string; model?: string };
 const TARGET_WORD: Record<TargetKind, string> = {
   pipeline: "ETL pipeline",
   ml_schedule: "ML schedule",
+  ml_promote: "model",
+  ml_deploy: "model",
   notebook: "notebook",
   swarm: "swarm",
   prep_flow: "prep flow",

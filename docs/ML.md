@@ -33,6 +33,8 @@ IAM, audited by trigger, with a decision id and a passport.
     Integrations → Kubeflow. Each pipeline can be kept as a file in your
     GitHub or GitLab repository (R541): see
     [ML pipelines in your repository](#ml-pipelines-in-your-repository).
+    **Promote model** and **Deploy model** steps finish the job (R542): see
+    [Delivering a model from a pipeline](#delivering-a-model-from-a-pipeline).
   - **Model serving:** every endpoint across your models, with the version
     it serves, how its traffic splits between versions, how many copies run
     and how busy it is. Production versions with no endpoint are listed
@@ -716,6 +718,49 @@ same reaper as ETL pipelines and materialized views:
 running it; resuming schedules from now, never from the missed past. Every
 start is audited (`ml.schedule.run` / `ml.schedule.failed`), and the
 schedule rows themselves are audited by trigger (`ml_schedule.*`).
+
+## Delivering a model from a pipeline
+
+A retrain trains a version. Two steps take it the rest of the way, so one ML
+pipeline can retrain, check, promote and roll out a model (R542):
+
+- **Promote model** puts the model's newest trained version into production.
+  - **Only when it beats production** is on by default. It compares the
+    two versions on the model's main score, the same rule a schedule's promote
+    when better uses. When the new version does not beat production, production
+    is kept and the step still succeeds; the run says "kept production", with
+    both version numbers.
+  - **On a model with approvers it asks.** The request goes to their inbox,
+    exactly as **Promote** on the model page does, and the step waits until
+    the version **is** production. It reads the model, not the request: a
+    request marked approved promotes nothing until an approver's own action
+    applies it. A refused request fails the step.
+  - Production already the newest version: nothing to do, and the step
+    succeeds.
+- **Deploy model** puts a model in front of requests.
+  - **Serve production** starts the model's endpoint on its production
+    version, or moves a running one to it. A running endpoint does not follow
+    production by itself (ML operations calls that "behind production"), so
+    put this after a Promote step.
+  - **Canary** sends 1% to 50% of real requests to the newest version, beside
+    production, and takes it off by itself if it fails more than production
+    does. Past half, the new version would be answering most customers without
+    anybody having promoted it, so that is refused: promote it instead.
+  - **Shadow** sends the newest version a copy of each request and compares
+    its answers with production's. Customers get production's.
+  - Canary and shadow need the endpoint running: put a Deploy step that serves
+    production first.
+
+A typical pipeline:
+
+- Retrain
+- Deploy model (canary, 10%)
+- Wait (one day)
+- Promote model (only when better; the approvers are asked)
+- Deploy model (serve production)
+
+Each step points at one of your own models; another workspace reading the
+pipeline from a repository finds its own model by name.
 
 ## ML pipelines in your repository
 

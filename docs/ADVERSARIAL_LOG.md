@@ -109,6 +109,23 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-26 — R542: a pipeline that could train a model but not ship it
+
+**Why this round.** After R540 and R541 an ML pipeline could retrain, score, run on Kubeflow and be deployed from Git, but could not promote what it trained or put it in front of requests. Read as a team that wants retrain, canary, approve and roll out as one pipeline. Also read as the approver whose sign-off has to hold when nobody is at the keyboard.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A pipeline could not promote or serve a model | S3 | **Found by the round's question.** **Promote model**: the newest version into production, only when better by default, asking the approvers of a gated model. **Deploy model**: production onto the endpoint, or the newest version as a canary (1% to 50%) or a shadow. |
+| A run of a new kind of step on an older database failed with a CHECK's name | S2 | **Found reading the runner.** "violates check constraint workflow_node_runs_kind_check" told nobody what to do, and R540's Kubeflow step had the same gap. The run now names the migration its steps need. Driven in the browser. |
+| The workflow list kept "succeeded" for a run that failed to start | S3 | **Found in the UI test.** The run was recorded failed, the workflow row was not. Both are now. |
+| A canary's share was held to 50% only when saved | S2 | **Found in review.** A graph written straight to the table skipped the save's check, and the serving code takes up to 100%. Held again when the step runs (tested with 100%). |
+| The canary option was cut off in its field | S4 | **Found in the UI test.** Shorter labels; the hint says the rest. |
+
+**Checked and sound.**
+- **The gate holds when nobody is watching.** On a model with approvers the step raises the same request the page's Promote does. It then waits for the MODEL to change. A request row set to approved promotes nothing: the poller never applies a promotion, so a forged row cannot (VA-2026-10-25-04). Run for real against the gate in a test: pending, then "approved" with production unchanged, are both still waiting; the version becoming production ends it; a refusal fails it.
+- **"Better" means what the schedule means.** The step uses `beatsProduction`, the rule a schedule's promote when better uses, including that an anomaly model's rate cannot decide a promotion. A first test fixture used the wrong metric and the real rule kept production, which is the safe answer it is meant to give.
+- **Only the owner's models.** Checked at save (`missingTargets` on `ml_models`) and again at run.
+
 ### 2026-11-26 — R541: a repository nobody could find, and an approval gate that guarded only the button
 
 **Why this round.** The user asked whether people can connect their own GitHub or GitLab repository for MLOps. The platform could already commit to one, but the settings were in BI's admin menu and covered only dashboards, semantic models and notebooks. Read as a data scientist who wants a pipeline reviewed in a pull request and deployed by CI. Also read as the model-risk reviewer whose sign-off is meant to stand between a retrain and production.

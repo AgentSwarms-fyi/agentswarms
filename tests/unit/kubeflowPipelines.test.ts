@@ -375,10 +375,13 @@ describe("the Kubeflow pipeline step", () => {
   it("is a kind a workflow, the runner's table and the palette all know", () => {
     expect(wf.NODE_KINDS).toContain("kubeflow_run");
     expect(wf.NODE_KIND_LABEL.kubeflow_run).toBe("Kubeflow pipeline");
-    const sql = read("supabase/migrations/20261203000000_kubeflow_pipelines.sql");
-    for (const kind of wf.NODE_KINDS) expect(sql, kind).toContain(`'${kind}'`);
+    // R540 added the kind; the newest CHECK admits every kind
+    // (workflows.test.ts reads it).
+    expect(read("supabase/migrations/20261203000000_kubeflow_pipelines.sql")).toContain(
+      "'kubeflow_run'",
+    );
     expect(read("src/components/workflows/nodeStyles.ts")).toContain(
-      'kinds: ["ml_schedule", "kubeflow_run", "notebook", "swarm"]',
+      'kinds: ["ml_schedule", "ml_promote", "ml_deploy", "kubeflow_run", "notebook", "swarm"]',
     );
   });
 

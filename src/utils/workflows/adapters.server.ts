@@ -30,7 +30,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { substituteParams, type WorkflowNode } from "@/lib/workflows";
+import { ML_CANARY_MAX_PERCENT, substituteParams, type WorkflowNode } from "@/lib/workflows";
 import { resolveInternalOrigin } from "@/utils/internalOrigin.server";
 
 /** What a step's underlying work has come to. */
@@ -69,6 +69,51 @@ export type StartArgs = {
    */
   settle: (outcome: Settled, output?: Record<string, unknown>) => Promise<void>;
 };
+
+/** One of the caller's own ML models, whole (R542). */
+async function ownModel(
+  id: string | undefined,
+  userId: string,
+): Promise<import("@/utils/ml/access.server").MlModelRow | null> {
+  if (!id) return null;
+  const { data } = await supabaseAdmin
+    .from("ml_models")
+    .select("*")
+    .eq("id", id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return (data as import("@/utils/ml/access.server").MlModelRow | null) ?? null;
+}
+
+async function versionRow(
+  id: string,
+): Promise<import("@/utils/ml/access.server").MlVersionRow | null> {
+  const { data } = await supabaseAdmin
+    .from("ml_model_versions")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  return (data as import("@/utils/ml/access.server").MlVersionRow | null) ?? null;
+}
+
+async function versionNumber(id: string | null): Promise<number | null> {
+  return id ? ((await versionRow(id))?.version ?? null) : null;
+}
+
+/** The newest version that finished training, production or not. */
+async function newestReadyVersion(
+  modelId: string,
+): Promise<import("@/utils/ml/access.server").MlVersionRow | null> {
+  const { data } = await supabaseAdmin
+    .from("ml_model_versions")
+    .select("*")
+    .eq("model_id", modelId)
+    .eq("status", "ready")
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as import("@/utils/ml/access.server").MlVersionRow | null) ?? null;
+}
 
 /** The marker a detached step carries so the poller knows to leave it alone. */
 export const DETACHED = "detached";
@@ -183,6 +228,126 @@ export async function startNode(args: StartArgs): Promise<StartResult> {
         // for a batch predict. The kind travels with it so the poller does not
         // have to re-read a schedule row that may be gone.
         return res.ok ? { ok: true, targetRunId: `${schedule.kind}:${res.refId}` } : res;
+      }
+      case "ml_promote": {
+        // R542. The newest version this model has trained, into production:
+        // through the model's own approval gate, never around it. On a model
+        // with approvers the step ASKS, and waits for one of them.
+        const model = await ownModel(node.targetId, userId);
+        if (!model) return { ok: false, error: "That model no longer exists, or is not yours" };
+        const newest = await newestReadyVersion(model.id);
+        if (!newest || newest.id === model.production_version_id) {
+          return {
+            ok: true,
+            settled: { done: true, ok: true },
+            output: {
+              outcome: "nothing newer",
+              production: await versionNumber(model.production_version_id),
+            },
+          };
+        }
+        if (node.ml?.onlyIfBetter !== false) {
+          const incumbent = model.production_version_id
+            ? await versionRow(model.production_version_id)
+            : null;
+          const { beatsProduction } = await import("@/utils/ml/schedule.server");
+          if (!beatsProduction(model.task, newest, incumbent)) {
+            // Kept is a success: the pipeline did what it was told, and the
+            // next step (a deploy of production) has nothing new to roll.
+            return {
+              ok: true,
+              settled: { done: true, ok: true },
+              output: {
+                outcome: "kept production",
+                version: newest.version,
+                production: incumbent?.version ?? null,
+              },
+            };
+          }
+        }
+        const { promotionGated, requestPromotion, applyPromotion } =
+          await import("@/utils/ml/promote.server");
+        if (promotionGated(model, "production")) {
+          const asked = await requestPromotion(model, newest, userId);
+          if (!asked.ok) return asked;
+          return {
+            ok: true,
+            targetRunId: `mlpromote:${asked.approvalId}:${newest.id}`,
+            output: { outcome: "asked the approvers", version: newest.version },
+          };
+        }
+        const done = await applyPromotion(model, newest, "production", userId);
+        if (!done.ok) return done;
+        return {
+          ok: true,
+          settled: { done: true, ok: true },
+          output: { outcome: "promoted", version: newest.version },
+        };
+      }
+      case "ml_deploy": {
+        // R542. A running endpoint does not follow production by itself (ML
+        // operations calls that "behind production"); this step rolls it, or
+        // tries the newest version beside production.
+        const model = await ownModel(node.targetId, userId);
+        if (!model) return { ok: false, error: "That model no longer exists, or is not yours" };
+        const mode = node.ml?.mode ?? "production";
+        const serve = await import("@/utils/ml/serve.server");
+        if (mode === "production") {
+          if (!model.production_version_id) {
+            return { ok: false, error: "The model has no production version to serve" };
+          }
+          const version = await versionRow(model.production_version_id);
+          if (!version) return { ok: false, error: "The production version could not be read" };
+          // Starting a copy can take a minute; the step settles itself when
+          // the endpoint can actually score.
+          return detach(args, async () => {
+            const res = await serve.ensureDeployment({ model, version, userId });
+            return res.ok
+              ? { ok: true, output: { mode, version: version.version } }
+              : { ok: false, error: res.error };
+          });
+        }
+        const newest = await newestReadyVersion(model.id);
+        if (!newest || newest.id === model.production_version_id) {
+          return {
+            ok: true,
+            settled: { done: true, ok: true },
+            output: { mode, outcome: "nothing newer than production to try" },
+          };
+        }
+        const dep = await serve.getDeployment(model.id);
+        if (!dep || dep.status !== "ready") {
+          return {
+            ok: false,
+            error:
+              "The model's endpoint is not running. Put a Deploy step that serves production before this one.",
+          };
+        }
+        // The save already holds a canary to 1-50%; held again here, because a
+        // graph written straight to the table never met the save's check.
+        const percent = mode === "canary" ? (node.ml?.percent ?? 0) : 0;
+        if (
+          mode === "canary" &&
+          (!Number.isInteger(percent) || percent < 1 || percent > ML_CANARY_MAX_PERCENT)
+        ) {
+          return {
+            ok: false,
+            error: `A canary sends 1% to ${ML_CANARY_MAX_PERCENT}% of requests to the new version; promote it to send more`,
+          };
+        }
+        return detach(args, async () => {
+          const res = await serve.setCandidate({ model, userId, version: newest, mode, percent });
+          return res.ok
+            ? {
+                ok: true,
+                output: {
+                  mode,
+                  version: newest.version,
+                  ...(mode === "canary" ? { percent } : {}),
+                },
+              }
+            : { ok: false, error: res.error };
+        });
       }
       case "notebook": {
         if (!(await owned("user_python_notebooks", node.targetId, userId))) {
@@ -551,6 +716,37 @@ export async function pollNode(args: {
       if (["queued", "running"].includes(data.status)) return { done: false };
       if (data.status === "succeeded") return { done: true, ok: true };
       return { done: true, ok: false, error: data.error ?? `The job ${data.status}` };
+    }
+    case "ml_promote": {
+      // `mlpromote:<approval id>:<version id>`, see startNode. Done when the
+      // version IS production: the approver's own signed-in call applies it
+      // (applyApprovedPromotion), never this poller. The approval row is
+      // writable by a client, so a row that merely SAYS approved promotes
+      // nothing (VA-2026-10-25-04); the step waits for the model to change.
+      const m = /^mlpromote:([0-9a-f-]{36}):([0-9a-f-]{36})$/i.exec(targetRunId);
+      if (!m) return { done: true, ok: false, error: "The promotion's reference is malformed" };
+      const { data: approval, error } = await supabaseAdmin
+        .from("approvals")
+        .select("status, payload")
+        .eq("id", m[1])
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (error) return unsettled(error);
+      if (!approval) return gone("promotion request");
+      const modelId = String((approval.payload as { model_id?: unknown } | null)?.model_id ?? "");
+      if (approval.status === "pending") return { done: false };
+      if (approval.status !== "approved") {
+        return { done: true, ok: false, error: `The promotion was ${approval.status}` };
+      }
+      const { data: model, error: modelError } = await supabaseAdmin
+        .from("ml_models")
+        .select("production_version_id")
+        .eq("id", modelId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (modelError) return unsettled(modelError);
+      if (!model) return gone("model");
+      return model.production_version_id === m[2] ? { done: true, ok: true } : { done: false };
     }
     case "notebook": {
       const { data, error } = await supabaseAdmin

@@ -15,7 +15,12 @@ import {
 } from "@/lib/workflows";
 
 /** The steps that make a workflow an ML pipeline. */
-export const ML_PIPELINE_KINDS: readonly WorkflowNodeKind[] = ["ml_schedule", "kubeflow_run"];
+export const ML_PIPELINE_KINDS: readonly WorkflowNodeKind[] = [
+  "ml_schedule",
+  "ml_promote",
+  "ml_deploy",
+  "kubeflow_run",
+];
 
 export function isMlPipeline(graph: WorkflowGraph | null | undefined): boolean {
   return Boolean(graph?.nodes?.some((n) => ML_PIPELINE_KINDS.includes(n.kind)));
@@ -39,7 +44,7 @@ export function mlPipelineStarter(): WorkflowGraph {
 }
 
 export const ML_PIPELINE_DESCRIPTION =
-  "An ML pipeline: retrain the model, then score new rows with it. Pick each step's schedule, or add Kubeflow, approval and notification steps.";
+  "An ML pipeline: retrain the model, then score new rows with it. Pick each step's schedule, or add Promote, Deploy, Kubeflow, approval and notification steps.";
 
 /** The steps in the order they run, as names a person reads. */
 export function pipelineSteps(graph: WorkflowGraph): string[] {
@@ -84,4 +89,15 @@ export function mlSchedulesIn(graph: WorkflowGraph): string[] {
   return graph.nodes
     .filter((n) => n.kind === "ml_schedule" && n.targetId)
     .map((n) => n.targetId as string);
+}
+
+/** The models a graph promotes or deploys directly, by id (R542). */
+export function mlModelsIn(graph: WorkflowGraph): string[] {
+  return [
+    ...new Set(
+      graph.nodes
+        .filter((n) => (n.kind === "ml_promote" || n.kind === "ml_deploy") && n.targetId)
+        .map((n) => n.targetId as string),
+    ),
+  ];
 }

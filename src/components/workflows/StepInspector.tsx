@@ -2,7 +2,7 @@
 //
 // Two halves, deliberately separated: WHAT this step runs, which is different
 // for every kind, and HOW the run treats it — when it may start, how often to
-// retry, when to give up — which is the same for all sixteen. Mixing them
+// retry, when to give up — which is the same for all eighteen. Mixing them
 // meant an author hunting for "retries" in a different place depending on the
 // step they had selected.
 import { Trash2 } from "lucide-react";
@@ -28,6 +28,7 @@ import {
 import type { WorkflowCandidates } from "@/utils/workflows.functions";
 import { ConditionBuilder, Field, HeaderRows, ModelPicker, TemplatedText } from "./inspectorFields";
 import { KubeflowStepFields } from "./KubeflowStepFields";
+import { MlDeliveryFields } from "./MlDeliveryFields";
 import { KIND_STYLE } from "./nodeStyles";
 
 type Patch = (patch: Partial<WorkflowNode>) => void;
@@ -371,6 +372,9 @@ function WhatItRuns({
       );
     case "kubeflow_run":
       return <KubeflowStepFields node={node} params={params} onChange={onChange} />;
+    case "ml_promote":
+    case "ml_deploy":
+      return <MlDeliveryFields node={node} candidates={candidates} onChange={onChange} />;
     case "http": {
       const http = node.http ?? { method: "POST" as const, url: "" };
       const set = (patch: Partial<NonNullable<WorkflowNode["http"]>>) =>

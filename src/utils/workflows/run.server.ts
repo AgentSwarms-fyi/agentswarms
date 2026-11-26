@@ -196,11 +196,22 @@ export async function startWorkflowRun(
     }),
   );
   if (nodesErr) {
+    const said = nodeRunsInsertError(
+      nodesErr.message,
+      graph.nodes.map((n) => n.kind),
+    );
     await supabaseAdmin
       .from("workflow_runs")
-      .update({ state: "failed", error: nodesErr.message, finished_at: now })
+      .update({ state: "failed", error: said, finished_at: now })
       .eq("id", run.id);
-    return { ok: false, error: nodesErr.message };
+    // FOUND FROM THE UI (R542): the run was recorded failed but the workflow
+    // kept its previous "succeeded", so the list said one thing and the run
+    // history another.
+    await supabaseAdmin
+      .from("workflows")
+      .update({ last_run_at: now, last_run_status: "failed" })
+      .eq("id", workflow.id);
+    return { ok: false, error: said };
   }
 
   await supabaseAdmin
@@ -724,4 +735,21 @@ export async function advanceLiveWorkflowRuns(): Promise<number> {
     }
   }
   return advanced;
+}
+
+/**
+ * Why a run's steps could not be recorded, in words. A database that has not
+ * had the migration for a newer kind of step refuses it by its CHECK, and the
+ * raw "violates check constraint" text told nobody what to do (FOUND IN R542).
+ */
+export function nodeRunsInsertError(message: string, kinds: readonly string[]): string {
+  if (!/workflow_node_runs_kind_check/.test(message)) return message;
+  const need: string[] = [];
+  if (kinds.includes("kubeflow_run")) need.push("Kubeflow steps need migration 20261203000000");
+  if (kinds.includes("ml_promote") || kinds.includes("ml_deploy")) {
+    need.push("Promote and Deploy model steps need migration 20261205000000");
+  }
+  return `This database does not know one of this workflow's kinds of step yet${
+    need.length ? `: ${need.join("; ")}` : ""
+  }. Apply the latest migrations (for example npx supabase db push --remote).`;
 }

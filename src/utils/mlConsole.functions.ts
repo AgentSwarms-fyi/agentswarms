@@ -448,7 +448,7 @@ async function pipelinesFor(userId: string): Promise<{
   pipelines: MlPipelineView[];
   runs: MlPipelineRun[];
 }> {
-  const { isMlPipeline, pipelineSteps, kubeflowPipelinesIn, mlSchedulesIn } =
+  const { isMlPipeline, pipelineSteps, kubeflowPipelinesIn, mlSchedulesIn, mlModelsIn } =
     await import("@/lib/mlPipelines");
   const { data: rows } = await supabaseAdmin
     .from("workflows")
@@ -487,9 +487,20 @@ async function pipelinesFor(userId: string): Promise<{
           .in("id", scheduleIds)
       : Promise.resolve({ data: [] as { id: string; model_id: string }[] }),
   ]);
-  const modelIds = [...new Set((schedules ?? []).map((s) => s.model_id))];
+  // The models the schedules train, and those a Promote or Deploy step names
+  // directly (R542); owner-scoped, like every other read here.
+  const modelIds = [
+    ...new Set([
+      ...(schedules ?? []).map((s) => s.model_id),
+      ...ml.flatMap((w) => mlModelsIn(graphs.get(w.id)!)),
+    ]),
+  ].filter((id) => /^[0-9a-f-]{36}$/i.test(id));
   const { data: models } = modelIds.length
-    ? await supabaseAdmin.from("ml_models").select("id, name").in("id", modelIds)
+    ? await supabaseAdmin
+        .from("ml_models")
+        .select("id, name")
+        .eq("user_id", userId)
+        .in("id", modelIds)
     : { data: [] as { id: string; name: string }[] };
   const modelName = new Map((models ?? []).map((m) => [m.id, m.name]));
   const scheduleModel = new Map((schedules ?? []).map((s) => [s.id, modelName.get(s.model_id)]));
@@ -516,9 +527,10 @@ async function pipelinesFor(userId: string): Promise<{
       steps: pipelineSteps(g),
       models: [
         ...new Set(
-          mlSchedulesIn(g)
-            .map((id) => scheduleModel.get(id))
-            .filter((n): n is string => Boolean(n)),
+          [
+            ...mlSchedulesIn(g).map((id) => scheduleModel.get(id)),
+            ...mlModelsIn(g).map((id) => modelName.get(id)),
+          ].filter((n): n is string => Boolean(n)),
         ),
       ],
       kubeflow: kubeflowPipelinesIn(g),

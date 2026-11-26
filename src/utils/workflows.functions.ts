@@ -500,6 +500,8 @@ export type WorkflowCandidates = {
   monitors: { id: string; name: string }[];
   workflows: { id: string; name: string }[];
   models: string[];
+  /** The caller's own ML models, for the Promote and Deploy model steps (R542). */
+  mlModels: { id: string; name: string; task: string; gated: boolean }[];
   /** Secret NAMES only. A value is never sent to the browser. */
   secrets: string[];
 };
@@ -523,6 +525,7 @@ export const workflowCandidates = createServerFn({ method: "POST" })
       monitors,
       workflows,
       models,
+      mlModels,
       secrets,
     ] = await Promise.all([
       supabaseAdmin.from("etl_pipelines").select("id, name").eq("user_id", userId).order("name"),
@@ -547,6 +550,11 @@ export const workflowCandidates = createServerFn({ method: "POST" })
         .eq("user_id", userId)
         .eq("is_active", true)
         .order("name"),
+      supabaseAdmin
+        .from("ml_models")
+        .select("id, name, task, promotion_approvers")
+        .eq("user_id", userId)
+        .order("name"),
       // Names, so a header can point at one without anybody typing the
       // `{{secret:NAME}}` spelling. The value column is not selected here
       // and is resolved server-side at run time.
@@ -570,6 +578,12 @@ export const workflowCandidates = createServerFn({ method: "POST" })
       // A workflow cannot run itself, so it is not offered as its own child.
       workflows: named(workflows.data).filter((w) => w.id !== data.exclude),
       models: (models.data ?? []).map((m) => String(m.name)),
+      mlModels: (mlModels.data ?? []).map((m) => ({
+        id: String(m.id),
+        name: String(m.name),
+        task: String(m.task),
+        gated: (m.promotion_approvers ?? []).length > 0,
+      })),
       secrets: (secrets.data ?? []).map((r) => String(r.name)),
     };
   });

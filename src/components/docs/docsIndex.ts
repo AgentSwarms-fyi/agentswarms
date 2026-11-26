@@ -6256,7 +6256,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "headings": [
       {
         "id": "steps",
-        "text": "The sixteen kinds of step",
+        "text": "The eighteen kinds of step",
         "level": 2
       },
       {

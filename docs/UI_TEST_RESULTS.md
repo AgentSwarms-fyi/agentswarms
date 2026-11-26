@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-26 — R542: Promote model and Deploy model steps
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab, on the "ML pipeline" kept from R540. Migration `20261205000000` is not applied on this database, so a run of the new steps was driven in the tests against the real promotion gate (`mlDeliverySteps.test.ts`), and here up to the database's refusal. Kept: nothing; the two steps added for the test were removed and the pipeline saved back to its one Retrain step.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Editor palette | Models and agents | **Promote model** ("Put the newest version in production", blue) and **Deploy model** ("Serve it, or try it on some traffic", green), after ML schedule |
+| Promote model | added, model picked | the model list is the owner's ML models; picking "revenue_facts · groups" named the step "Promote revenue_facts · groups"; **Only when it beats production** is on by default, with what it does |
+| Deploy model | added, model picked, How | Serve production (default), with its hint; Canary showed a share field. The option read "Canary: the newest version answers a s…", cut off by the field (fixed: "Canary (answers a share)") |
+| Same | share 70%, **Save** | refused: "A canary sends 1% to 50% of requests to the new version; promote it to send more"; 10% saved |
+| Editor | **Run now** | "This database does not know one of this workflow's kinds of step yet: Promote and Deploy model steps need migration 20261205000000. Apply the latest migrations (for example npx supabase db push --remote)." Before, a run like this failed with the CHECK's own name |
+| Workflows list | after that run | the pipeline still read **succeeded** while its run history said failed (fixed: the workflow is marked failed too) |
+| ML pipelines | the card | steps Retrain, Promote revenue_facts · groups, Deploy revenue_facts · groups; "Models: revenue_facts · groups" once; the failure's words under it |
+| Canvas | Fit view | Retrain purple, Promote blue, Deploy green |
+
 ## 2026-11-26 — R540 and R541: ML pipelines, and keeping them in your repository
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab. Neither migration (`20261203000000`, `20261204000000`) is applied on this database and no repository is connected, so the Kubeflow and repository steps that write were driven in the tests against stand-ins (`kubeflowPipelines.test.ts`, `mlRepo.test.ts`), not here. Kept: one workflow, "ML pipeline" (one Retrain step on the Nightly retrain schedule), and the model version its run trained.

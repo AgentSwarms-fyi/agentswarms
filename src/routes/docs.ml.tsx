@@ -66,10 +66,10 @@ function MlDocsPage() {
             <li>
               <strong>Deploy:</strong> ML Models, the registry; ML pipelines, a model&apos;s work
               automated end to end (retrain, check, promote, score, or a pipeline on your Kubeflow),
-              each a workflow with an ML schedule or Kubeflow step, kept if you like as a file in
-              your GitHub or GitLab repository and deployed by CI; Model serving, every endpoint,
-              its traffic split and how busy it is. <strong>Deploy a model</strong> there lists the
-              production versions with no endpoint.
+              each a workflow with an ML schedule, Promote, Deploy or Kubeflow step, kept if you
+              like as a file in your GitHub or GitLab repository and deployed by CI; Model serving,
+              every endpoint, its traffic split and how busy it is. <strong>Deploy a model</strong>{" "}
+              there lists the production versions with no endpoint.
             </li>
             <li>
               <strong>Monitor:</strong> ML operations, what failed, what is running and what is due,

@@ -62,9 +62,9 @@ function WorkflowsDocs() {
         workaround is to stagger cron times and hope the first is done before the second starts.
       </Callout>
 
-      <H2 id="steps">The sixteen kinds of step</H2>
+      <H2 id="steps">The eighteen kinds of step</H2>
       <P>
-        Nine start work the platform already does. Three reach outside it. Four are control flow,
+        Eleven start work the platform already does. Three reach outside it. Four are control flow,
         which an orchestrator has to own itself because it is about the graph rather than about any
         one system.
       </P>
@@ -91,6 +91,14 @@ function WorkflowsDocs() {
           {
             name: "ML schedule",
             body: "Runs a retrain or a batch prediction you have already defined, including its promote-if-better rule.",
+          },
+          {
+            name: "Promote model",
+            body: "Puts the model's newest trained version into production, by default only when it beats production on the model's main score (otherwise production is kept and the step still succeeds). On a model with approvers it asks them and waits until the version is production.",
+          },
+          {
+            name: "Deploy model",
+            body: "Serves production on the model's endpoint, starting it or moving it to the production version, or tries the newest version beside production: a canary that answers 1% to 50% of requests, or a shadow that answers none.",
           },
           {
             name: "Notebook",

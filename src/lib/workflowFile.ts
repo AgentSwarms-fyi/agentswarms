@@ -20,6 +20,7 @@ import { z } from "zod";
 
 import {
   MAX_NODES,
+  ML_DEPLOY_MODES,
   NODE_KINDS,
   TARGET_ID_KINDS,
   TRIGGER_RULES,
@@ -55,6 +56,13 @@ export const WORKFLOW_NODE_SCHEMA = z.object({
       headers: z.record(z.string().max(200), z.string().max(4000)).optional(),
       body: z.string().max(20000).optional(),
       okStatuses: z.array(z.number().int()).max(50).optional(),
+    })
+    .optional(),
+  ml: z
+    .object({
+      onlyIfBetter: z.boolean().optional(),
+      mode: z.enum(ML_DEPLOY_MODES).optional(),
+      percent: z.number().int().min(0).max(100).optional(),
     })
     .optional(),
   kubeflow: z
@@ -156,6 +164,8 @@ export type StepTarget = { kind: TargetKind; id: string };
 export type TargetKind =
   | "pipeline"
   | "ml_schedule"
+  | "ml_promote"
+  | "ml_deploy"
   | "notebook"
   | "swarm"
   | "prep_flow"
@@ -194,6 +204,7 @@ const STEP_KEYS: (keyof WorkflowFileStep)[] = [
   "models",
   "text",
   "http",
+  "ml",
   "kubeflow",
   "waitSeconds",
   "triggerRule",

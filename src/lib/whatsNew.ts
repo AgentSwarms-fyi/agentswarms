@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "ml-promote-deploy-steps",
+    date: "2026-11-26",
+    title: "Promote and deploy from an ML pipeline",
+    body: "Two new steps finish what a retrain starts: Promote model, which asks the model's approvers when it has any, and Deploy model, which serves production or tries the new version as a canary.",
+    link: { to: "/ml/pipelines" },
+    cta: "Open ML pipelines",
+  },
+  {
     id: "ml-pipelines-in-git",
     date: "2026-11-26",
     title: "ML pipelines in your Git repository",
