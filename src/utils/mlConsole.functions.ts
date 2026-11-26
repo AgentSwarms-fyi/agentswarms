@@ -171,8 +171,14 @@ export type MlOperationsOverview = {
   attention: AttentionItem[];
   running: MlOpsJob[];
   predicting: MlOpsPrediction[];
+  /** ML pipeline runs in progress (R540). */
+  pipelineRunning: (MlPipelineRun & { name: string })[];
   upcoming: (ScheduleLite & { model_name: string })[];
-  recent: (({ type: "job" } & MlOpsJob) | ({ type: "prediction" } & MlOpsPrediction))[];
+  recent: (
+    | ({ type: "job" } & MlOpsJob)
+    | ({ type: "prediction" } & MlOpsPrediction)
+    | ({ type: "pipeline" } & MlPipelineRun & { name: string; created_at: string })
+  )[];
   compute: {
     backend: string;
     training_gpus: number;
@@ -181,6 +187,7 @@ export type MlOperationsOverview = {
     time_budget_minutes: number;
   };
   models: number;
+  pipelines: number;
 };
 
 export const mlOperationsOverview = createServerFn({ method: "POST" })
@@ -198,14 +205,41 @@ export const mlOperationsOverview = createServerFn({ method: "POST" })
       trainings_per_person: limits.mlMaxConcurrentTrainingsPerUser,
       time_budget_minutes: limits.mlTrainTimeBudgetMinutes,
     };
+    // ML pipelines (R540): their runs sit beside the jobs they start.
+    const pipe = await pipelinesFor(userId);
+    const pipeName = new Map(pipe.pipelines.map((p) => [p.id, p.name]));
+    const pipeRuns = pipe.runs.map((r) => ({
+      ...r,
+      name: pipeName.get(r.workflow_id) ?? "Pipeline",
+    }));
+    const pipelineRunning = pipeRuns.filter((r) => r.state === "running");
+    const pipelineRecent = pipeRuns
+      .filter((r) => r.state !== "running")
+      .slice(0, 15)
+      .map((r) => ({ type: "pipeline" as const, ...r, created_at: r.started_at ?? "" }));
+    const sinceRun = Date.now() - 7 * DAY;
+    const failedPipelineRuns = pipeRuns.filter(
+      (r) =>
+        r.state === "failed" && new Date(r.finished_at ?? r.started_at ?? 0).getTime() >= sinceRun,
+    );
     const empty: MlOperationsOverview = {
-      attention: [],
+      attention: attentionItems({
+        names: new Map(),
+        failedJobs: [],
+        failedPredictions: [],
+        failedPipelineRuns,
+        endpoints: [],
+        schedules: [],
+        health: new Map(),
+      }),
       running: [],
       predicting: [],
+      pipelineRunning,
       upcoming: [],
-      recent: [],
+      recent: pipelineRecent,
       compute,
       models: 0,
+      pipelines: pipe.pipelines.length,
     };
     if (!models.length) return empty;
     const ids = models.map((m) => m.id);
@@ -344,6 +378,7 @@ export const mlOperationsOverview = createServerFn({ method: "POST" })
     const recent = [
       ...(recentJobs.data ?? []).map((j) => ({ type: "job" as const, ...job(j) })),
       ...(recentPreds.data ?? []).map((p) => ({ type: "prediction" as const, ...pred(p) })),
+      ...pipelineRecent,
     ]
       .sort(
         (a, b) =>
@@ -356,15 +391,194 @@ export const mlOperationsOverview = createServerFn({ method: "POST" })
         names,
         failedJobs: (failed.data ?? []).map(job),
         failedPredictions: (failedPreds.data ?? []).map(pred),
+        failedPipelineRuns,
         endpoints,
         schedules: sched,
         health: healthAlerts,
       }).slice(0, 30),
       running: (live.data ?? []).map(job),
       predicting: (livePreds.data ?? []).map(pred),
+      pipelineRunning,
       upcoming: sched.filter((s) => s.is_active),
       recent,
       compute,
       models: models.length,
+      pipelines: pipe.pipelines.length,
     };
+  });
+
+// ── ML pipelines (R540) ──────────────────────────────────────────────────────
+
+export type MlPipelineRun = {
+  id: string;
+  workflow_id: string;
+  state: string;
+  trigger: string | null;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
+export type MlPipelineView = {
+  id: string;
+  name: string;
+  description: string | null;
+  schedule: string;
+  cron_expr: string | null;
+  is_active: boolean;
+  next_run_at: string | null;
+  steps: string[];
+  /** The models its ML schedule steps train or score, by name. */
+  models: string[];
+  /** The Kubeflow pipelines it runs, by name. */
+  kubeflow: string[];
+  last: MlPipelineRun | null;
+  /** A CI job or another system can start it (a trigger token exists). */
+  has_trigger_token: boolean;
+};
+
+export type MlPipelinesOverview = {
+  pipelines: MlPipelineView[];
+  recent: (MlPipelineRun & { name: string })[];
+  kubeflowConnections: number;
+};
+
+/** The caller's own workflows that do model work, with their last runs. */
+async function pipelinesFor(userId: string): Promise<{
+  pipelines: MlPipelineView[];
+  runs: MlPipelineRun[];
+}> {
+  const { isMlPipeline, pipelineSteps, kubeflowPipelinesIn, mlSchedulesIn } =
+    await import("@/lib/mlPipelines");
+  const { data: rows } = await supabaseAdmin
+    .from("workflows")
+    .select(
+      "id, name, description, graph, schedule, cron_expr, is_active, next_run_at, updated_at, trigger_token_hash",
+    )
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
+    .limit(200);
+  const ml = (rows ?? []).filter((w) =>
+    isMlPipeline(w.graph as unknown as import("@/lib/workflows").WorkflowGraph),
+  );
+  if (!ml.length) return { pipelines: [], runs: [] };
+  const graphs = new Map(
+    ml.map((w) => [w.id, w.graph as unknown as import("@/lib/workflows").WorkflowGraph]),
+  );
+  const scheduleIds = [...new Set(ml.flatMap((w) => mlSchedulesIn(graphs.get(w.id)!)))].filter(
+    (id) => /^[0-9a-f-]{36}$/i.test(id),
+  );
+  const [{ data: runs }, { data: schedules }] = await Promise.all([
+    supabaseAdmin
+      .from("workflow_runs")
+      .select("id, workflow_id, state, trigger, error, started_at, finished_at")
+      .eq("user_id", userId)
+      .in(
+        "workflow_id",
+        ml.map((w) => w.id),
+      )
+      .order("started_at", { ascending: false })
+      .limit(60),
+    scheduleIds.length
+      ? supabaseAdmin
+          .from("ml_schedules")
+          .select("id, model_id")
+          .eq("user_id", userId)
+          .in("id", scheduleIds)
+      : Promise.resolve({ data: [] as { id: string; model_id: string }[] }),
+  ]);
+  const modelIds = [...new Set((schedules ?? []).map((s) => s.model_id))];
+  const { data: models } = modelIds.length
+    ? await supabaseAdmin.from("ml_models").select("id, name").in("id", modelIds)
+    : { data: [] as { id: string; name: string }[] };
+  const modelName = new Map((models ?? []).map((m) => [m.id, m.name]));
+  const scheduleModel = new Map((schedules ?? []).map((s) => [s.id, modelName.get(s.model_id)]));
+  const { errorLead } = await import("@/lib/mlConsole");
+  const allRuns: MlPipelineRun[] = (runs ?? []).map((r) => ({
+    id: r.id,
+    workflow_id: r.workflow_id,
+    state: r.state,
+    trigger: r.trigger,
+    error: r.error ? errorLead(r.error, 600) : null,
+    started_at: r.started_at,
+    finished_at: r.finished_at,
+  }));
+  const pipelines: MlPipelineView[] = ml.map((w) => {
+    const g = graphs.get(w.id)!;
+    return {
+      id: w.id,
+      name: w.name,
+      description: w.description,
+      schedule: w.schedule,
+      cron_expr: w.cron_expr,
+      is_active: w.is_active,
+      next_run_at: w.next_run_at,
+      steps: pipelineSteps(g),
+      models: [
+        ...new Set(
+          mlSchedulesIn(g)
+            .map((id) => scheduleModel.get(id))
+            .filter((n): n is string => Boolean(n)),
+        ),
+      ],
+      kubeflow: kubeflowPipelinesIn(g),
+      last: allRuns.find((r) => r.workflow_id === w.id) ?? null,
+      has_trigger_token: Boolean(w.trigger_token_hash),
+    };
+  });
+  return { pipelines, runs: allRuns };
+}
+
+export const mlPipelinesOverview = createServerFn({ method: "POST" })
+  .validator((input: unknown) => TOKEN.parse(input))
+  .handler(async ({ data }): Promise<MlPipelinesOverview> => {
+    const userId = await resolveCaller(data.access_token);
+    const [{ pipelines, runs }, { count }] = await Promise.all([
+      pipelinesFor(userId),
+      supabaseAdmin
+        .from("integrations")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("type", "kubeflow"),
+    ]);
+    const names = new Map(pipelines.map((p) => [p.id, p.name]));
+    return {
+      pipelines,
+      recent: runs
+        .slice(0, 15)
+        .map((r) => ({ ...r, name: names.get(r.workflow_id) ?? "Pipeline" })),
+      kubeflowConnections: count ?? 0,
+    };
+  });
+
+/**
+ * A new ML pipeline: a workflow with the starter graph (retrain, then score),
+ * named "ML pipeline", or "ML pipeline 2" and so on when that name is taken.
+ * The editor opens on it; its steps' schedules are picked there.
+ */
+export const mlPipelineCreate = createServerFn({ method: "POST" })
+  .validator((input: unknown) => TOKEN.parse(input))
+  .handler(async ({ data }): Promise<{ ok: true; id: string } | { ok: false; error: string }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { mlPipelineStarter, ML_PIPELINE_DESCRIPTION } = await import("@/lib/mlPipelines");
+    const { data: taken } = await supabaseAdmin
+      .from("workflows")
+      .select("name")
+      .eq("user_id", userId)
+      .ilike("name", "ML pipeline%");
+    const names = new Set((taken ?? []).map((t) => t.name));
+    let name = "ML pipeline";
+    for (let i = 2; names.has(name) && i < 1000; i++) name = `ML pipeline ${i}`;
+    const { data: row, error } = await supabaseAdmin
+      .from("workflows")
+      .insert({
+        user_id: userId,
+        name,
+        description: ML_PIPELINE_DESCRIPTION,
+        graph: mlPipelineStarter() as unknown as import("@/integrations/supabase/types").Json,
+      })
+      .select("id")
+      .single();
+    if (error || !row) return { ok: false, error: error?.message ?? "Could not create it" };
+    return { ok: true, id: String(row.id) };
   });

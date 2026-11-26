@@ -364,7 +364,7 @@ function DashboardDoc() {
           [
             "Data science",
             "Develop, deploy and monitor models on your data",
-            "Developer workspace, Feature views, Experiments, ML Models, Model serving, ML operations",
+            "Developer workspace, Feature views, Experiments, ML Models, ML pipelines, Model serving, ML operations",
           ],
           [
             "Integrations",

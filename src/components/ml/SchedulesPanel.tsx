@@ -52,9 +52,11 @@ function inTime(iso: string): string {
 function statusTone(s: string | null) {
   return s === "promoted"
     ? "text-emerald-600 dark:text-emerald-400"
-    : s === "failed"
-      ? "text-red-600 dark:text-red-400"
-      : "text-muted-foreground";
+    : s === "awaiting_approval"
+      ? "text-amber-700 dark:text-amber-400"
+      : s === "failed"
+        ? "text-red-600 dark:text-red-400"
+        : "text-muted-foreground";
 }
 
 export function SchedulesPanel({
@@ -184,7 +186,9 @@ export function SchedulesPanel({
                     <td className="px-3 py-2">
                       {s.last_run_at ? (
                         <>
-                          <span className={statusTone(s.last_status)}>{s.last_status}</span>
+                          <span className={statusTone(s.last_status)}>
+                            {s.last_status?.replace(/_/g, " ")}
+                          </span>
                           <span className="ml-1 text-[11px] text-muted-foreground">
                             {relTime(s.last_run_at)}
                           </span>

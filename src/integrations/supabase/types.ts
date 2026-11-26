@@ -7048,6 +7048,42 @@ export type Database = {
       };
       // 20261126000000 (R529): when a person started each tutorial. Steps are
       // worked out from what they made since, never stored.
+      workflow_repo_links: {
+        Row: {
+          local_hash: string;
+          path: string;
+          repo: string;
+          repo_hash: string;
+          synced_at: string;
+          synced_by: string;
+          synced_commit: string | null;
+          user_id: string;
+          workflow_id: string;
+        };
+        Insert: {
+          local_hash: string;
+          path: string;
+          repo: string;
+          repo_hash: string;
+          synced_at?: string;
+          synced_by: string;
+          synced_commit?: string | null;
+          user_id: string;
+          workflow_id: string;
+        };
+        Update: {
+          local_hash?: string;
+          path?: string;
+          repo?: string;
+          repo_hash?: string;
+          synced_at?: string;
+          synced_by?: string;
+          synced_commit?: string | null;
+          user_id?: string;
+          workflow_id?: string;
+        };
+        Relationships: [];
+      };
       tutorial_runs: {
         Row: {
           finished_at: string | null;

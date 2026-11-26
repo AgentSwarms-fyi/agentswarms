@@ -17,12 +17,22 @@ IAM, audited by trigger, with a decision id and a passport.
   and whether something is training right now.
 - **The rest of a model's life** is under **Data science** too, in the order
   it happens. The rail names three steps: **Develop** (Developer workspace,
-  Feature views, Experiments), **Deploy** (ML Models, Model serving) and
+  Feature views, Experiments), **Deploy** (ML Models, ML pipelines, Model serving) and
   **Monitor** (ML operations).
   - **Experiments:** every training run and logged notebook run, compared on
     the same metrics.
   - **Feature views:** named feature sets, built point in time and served
     online.
+  - **ML pipelines:** a model's work automated end to end (R540): retrain it,
+    check it, promote it, score new rows, or run a pipeline on your Kubeflow,
+    on a schedule or when started. An ML pipeline is a workflow that has an
+    ML schedule or Kubeflow step; the page lists them with their steps, the
+    models they touch, how they start and their last run, and **New ML
+    pipeline** creates one that retrains and then scores, opened in the
+    workflow editor. Kubeflow Pipelines servers are connected under
+    Integrations → Kubeflow. Each pipeline can be kept as a file in your
+    GitHub or GitLab repository (R541): see
+    [ML pipelines in your repository](#ml-pipelines-in-your-repository).
   - **Model serving:** every endpoint across your models, with the version
     it serves, how its traffic splits between versions, how many copies run
     and how busy it is. Production versions with no endpoint are listed
@@ -549,6 +559,12 @@ The audit names both people: `ml.version.promote.requested` when it is asked
 for, and `ml.version.promote` with `approved_by` when it happens. Turning the
 gate on and off is itself recorded.
 
+**Whoever asks, it is a request.** A scheduled retrain set to promote when
+better, and the registration API's `promote`, go through the same gate as the
+button: on a gated model they raise the request and say so (the API answers
+`promotion_pending: true`). Found in R541: both used to promote directly, so the
+gate guarded only the button.
+
 ## Predictions
 
 **Try it** — a form generated from the feature schema (medians and category
@@ -680,7 +696,10 @@ same reaper as ETL pipelines and materialized views:
   or on a cron expression, with its own budget and tuning mode. When
   **promote when better** is on, the new version becomes production the
   moment it is ready if its primary metric beats the incumbent; you are told
-  either way. If the incumbent cannot be read, the new version is not judged
+  either way. On a model whose promotions need an approver, the schedule asks
+  instead: the request waits in the approvers' inbox, the schedule's last run
+  reads "awaiting approval", and production keeps serving until somebody
+  agrees (R541; before, a schedule promoted past the gate). If the incumbent cannot be read, the new version is not judged
   on that sweep but on the next, rather than being compared with nothing and
   promoted (R251). **An anomaly model is the exception**: its primary metric,
   `anomaly_rate`, is the share of rows the detector flagged — near enough the
@@ -697,6 +716,80 @@ same reaper as ETL pipelines and materialized views:
 running it; resuming schedules from now, never from the missed past. Every
 start is audited (`ml.schedule.run` / `ml.schedule.failed`), and the
 schedule rows themselves are audited by trigger (`ml_schedule.*`).
+
+## ML pipelines in your repository
+
+An ML pipeline can live as a file in your team's GitHub or GitLab repository,
+where changes are reviewed in pull requests and a CI job deploys them (R541).
+Connect the repository once under **Integrations → Git repository**: provider,
+repository, branch, folder, and an access token picked from your secrets. It is
+the same connection BI's Git sync and notebook versions use.
+
+On **ML pipelines**, each pipeline's **Repository** menu offers:
+
+- **Save to repo** commits the pipeline as `<folder>/ml/pipelines/<name>.json`,
+  with the configuration of each model it trains or scores beside it in
+  `<folder>/ml/models/`. The file never overwrites somebody else's: if one of
+  that name is already there, the new file takes the pipeline's id as a
+  suffix.
+- **Update from repo** reads the file at the head of the branch, shows what
+  would change (steps added, removed or changed, arrows, settings), and applies
+  exactly the commit it showed.
+- **Deploy from CI** gives a GitHub Actions or GitLab CI job, and creates the
+  pipeline's trigger token. On a push to the branch that changes the file, the
+  job updates the pipeline from that commit and runs it.
+- **Import from repo** (above the list) makes a new pipeline from a file nobody
+  keeps yet. It arrives **paused**, so a file with a schedule does not start
+  running before anyone has looked at it here.
+
+Under each pipeline, a line names its file, when it was last saved, updated,
+imported or deployed, at which commit, and **Changed here since** when it was
+edited on the platform after that.
+
+**What the file holds.** The definition: steps, arrows, schedule, parameters,
+time limit and notifications. Whether the pipeline is switched on stays on the
+platform, because pausing a pipeline at 2 a.m. should not need a pull request.
+Each step that points at something carries its id **and its name** (an ML
+schedule also carries its model's name). A file read into another workspace
+finds that workspace's own schedule, pipeline or Kubeflow connection by name
+when the id is not there. It refuses, naming the step, when no name matches
+or more than one does.
+
+**A file is held to every rule a save is.** Update, import and a CI deploy all
+write through the one path the editor's Save takes: the graph must validate,
+the cron must parse, and every step must point at something its owner owns. A
+file that fails changes nothing, and the error names what is wrong and where
+(`steps.1.kind: …`).
+
+**What is never written.**
+
+- A key typed into an HTTP step's header: saving is refused until the header
+  names a secret (`{{secret:NAME}}`), because a repository keeps every version
+  forever.
+- Data: no rows, column statistics or leaderboards.
+- People: a model's promotion approvers are counted, never named.
+
+**Only the reviewed branch is deployed.** A CI job sends the commit it built:
+
+```bash
+curl -fsS -X POST "$APP_ORIGIN/api/workflows/run" \
+  -H "Authorization: Bearer $AGENTSWARMS_TRIGGER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"workflow_id":"…","sync":true,"ref":"<commit sha>"}'
+```
+
+The platform deploys that commit only if it is on the branch the repository is
+connected with (the branch head, or in its history). It does not deploy other
+branches by name, so a token that leaks into a fork's CI cannot ship
+unreviewed work. Add `"run": false` to deploy without running; that works while
+the pipeline is paused. Every save, update, import and deploy is audited
+(`workflow.repo.save`, `.pull`, `.import`, `.deploy`) with the commit, and the
+definition change itself is recorded by the workflow's audit trigger.
+
+**Promotion stays gated.** A pipeline that retrains a model with approvers
+cannot put a version in production by itself, from a schedule, a CI deploy or
+the API. It raises the request, and the version waits for an approver who did
+not ask. See [Who signs off a promotion](#who-signs-off-a-promotion).
 
 ## Drift
 

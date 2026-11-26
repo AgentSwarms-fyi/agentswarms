@@ -150,9 +150,10 @@ const FIXED: { file: string; marker: string; what: string; callsLoad?: true }[] 
     what: "the connection tables load (it clears the table picked)",
   },
   {
-    file: "src/components/bi/BiGitSyncDialog.tsx",
+    // The form is shared with Integrations → Git repository since R541.
+    file: "src/components/git/GitRepositoryFields.tsx",
     marker: "getConfig({ data: { access_token: token } })",
-    what: "the Git sync settings load",
+    what: "the Git repository settings load",
   },
   {
     file: "src/routes/_authenticated/data-sql.tsx",
@@ -303,6 +304,7 @@ const REVIEWED: Record<string, number> = {
   "src/routes/_authenticated/ml_.new.tsx": 2,
   // R538: two read-only overviews; a refresh re-reads them and holds no edit.
   "src/routes/_authenticated/ml_.operations.tsx": 1,
+  "src/routes/_authenticated/ml_.pipelines.tsx": 1,
   "src/routes/_authenticated/ml_.serving.tsx": 1,
   "src/routes/_authenticated/model-registry.tsx": 1,
   "src/routes/_authenticated/monitoring.tsx": 2,

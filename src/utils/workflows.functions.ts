@@ -15,19 +15,12 @@ import { withNulSafeFetch } from "@/integrations/supabase/nulSafeFetch";
 import { auditEvent } from "@/utils/audit.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { trashErrorText } from "@/lib/trash";
-import { validateCron } from "@/lib/cron";
 import { workflowChangedSinceRun } from "@/lib/workflowDrift";
-import {
-  MAX_NODES,
-  NODE_KINDS,
-  TRIGGER_RULES,
-  WORKFLOW_NAME_MAX,
-  validateWorkflow,
-  type WorkflowGraph,
-  type WorkflowNode,
-} from "@/lib/workflows";
+import { MAX_NODES, WORKFLOW_NAME_MAX, type WorkflowNode } from "@/lib/workflows";
 import { callerFailure } from "@/utils/callerLookup.server";
 import { unversionedSave } from "@/lib/saveVersion";
+import { WORKFLOW_NODE_SCHEMA } from "@/lib/workflowFile";
+import { applyWorkflowDefinition } from "@/utils/workflows/definition.server";
 
 type Fail = { ok: false; error: string };
 
@@ -189,31 +182,7 @@ export const workflowGet = createServerFn({ method: "POST" })
     return { ok: true, workflow: toRow(row) };
   });
 
-const NODE = z.object({
-  id: z.string().min(1),
-  kind: z.enum(NODE_KINDS),
-  label: z.string().max(200),
-  targetId: z.string().optional(),
-  models: z.array(z.string()).optional(),
-  text: z.string().max(20000).optional(),
-  http: z
-    .object({
-      method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
-      url: z.string().max(2000),
-      headers: z.record(z.string(), z.string()).optional(),
-      body: z.string().max(20000).optional(),
-      okStatuses: z.array(z.number().int()).optional(),
-    })
-    .optional(),
-  waitSeconds: z.number().int().positive().max(86400).optional(),
-  continueOnFailure: z.boolean().optional(),
-  triggerRule: z.enum(TRIGGER_RULES).optional(),
-  retries: z.number().int().min(0).max(10).optional(),
-  retryBackoffSeconds: z.number().int().positive().max(3600).optional(),
-  timeoutMinutes: z.number().int().positive().max(10080).optional(),
-  x: z.number().optional(),
-  y: z.number().optional(),
-});
+const NODE = WORKFLOW_NODE_SCHEMA;
 
 export const workflowSave = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
@@ -267,154 +236,31 @@ export const workflowSave = createServerFn({ method: "POST" })
         overwrite: data.overwrite,
       });
       if (refused) return { ok: false, error: refused };
-      const graph: WorkflowGraph = {
-        nodes: data.nodes as WorkflowNode[],
-        edges: data.edges,
-        params: data.params,
-      };
-      const invalid = validateWorkflow({ name: data.name, graph });
-      if (invalid) return { ok: false, error: invalid };
-      if (data.schedule === "cron") {
-        if (!data.cronExpr?.trim()) {
-          return { ok: false, error: "A cron schedule needs an expression" };
-        }
-        try {
-          validateCron(data.cronExpr, data.timezone ?? undefined);
-        } catch (e) {
-          return { ok: false, error: (e as Error).message };
-        }
-      }
-
-      // Every target must still be the caller's own. Checked at SAVE as well as
-      // at run, because "it silently stopped running that pipeline" is a much
-      // worse discovery than a refusal at the moment you press Save.
-      const missing = await missingTargets(userId, graph, data.id);
-      if (missing) return { ok: false, error: missing };
-
-      const { nextWorkflowRunAt } = await import("@/utils/workflows/run.server");
-      const reclock = await scheduleDiffers(data.id, data);
-      let q = supabaseAdmin
-        .from("workflows")
-        .update({
+      return applyWorkflowDefinition(
+        userId,
+        data.id,
+        {
           name: data.name,
           description: data.description ?? null,
-          graph: graph as unknown as Json,
           schedule: data.schedule,
-          cron_expr: data.schedule === "cron" ? (data.cronExpr ?? null) : null,
+          cronExpr: data.cronExpr ?? null,
           timezone: data.timezone ?? null,
           overlap: data.overlap,
-          notify_on: data.notifyOn,
-          timeout_minutes: data.timeoutMinutes,
-          params: data.params as unknown as Json,
-          is_active: data.isActive,
-          // A schedule that changed needs a new clock; one that did not is left
-          // alone so saving a label does not postpone tonight's run.
-          ...(reclock
-            ? {
-                next_run_at:
-                  data.schedule === "manual"
-                    ? null
-                    : nextWorkflowRunAt(data.schedule, new Date(), data.cronExpr, data.timezone),
-              }
-            : {}),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", data.id)
-        .eq("user_id", userId);
-      if (data.expectedUpdatedAt) q = q.eq("updated_at", data.expectedUpdatedAt);
-      const { data: row, error } = await q.select("id, updated_at").maybeSingle();
-      if (error) return { ok: false, error: error.message };
-      if (!row) {
-        // Nothing matched: the workflow is gone, or it moved on since this page
-        // read it. Only the second is a stale save.
-        if (data.expectedUpdatedAt) {
-          const { data: still, error: stillError } = await supabaseAdmin
-            .from("workflows")
-            .select("id")
-            .eq("id", data.id)
-            .eq("user_id", userId)
-            .maybeSingle();
-          if (stillError) return { ok: false, error: stillError.message };
-          if (still) {
-            return {
-              ok: false,
-              stale: true,
-              error: "This workflow was changed in another tab or session after this page read it",
-            };
-          }
-        }
-        return { ok: false, error: "Workflow not found" };
-      }
-      return { ok: true, updatedAt: String(row.updated_at) };
+          notifyOn: data.notifyOn,
+          timeoutMinutes: data.timeoutMinutes,
+          graph: {
+            nodes: data.nodes as WorkflowNode[],
+            edges: data.edges,
+            params: data.params,
+          },
+        },
+        data.overwrite
+          ? { overwrite: true }
+          : { expectedUpdatedAt: data.expectedUpdatedAt as string },
+        data.isActive,
+      );
     },
   );
-
-async function scheduleDiffers(
-  id: string,
-  next: { schedule: string; cronExpr?: string | null; timezone?: string | null },
-): Promise<boolean> {
-  const { data: row } = await supabaseAdmin
-    .from("workflows")
-    .select("schedule, cron_expr, timezone, next_run_at")
-    .eq("id", id)
-    .maybeSingle();
-  if (!row) return true;
-  if (row.schedule !== next.schedule) return true;
-  if ((row.cron_expr ?? null) !== (next.cronExpr ?? null)) return true;
-  if ((row.timezone ?? null) !== (next.timezone ?? null)) return true;
-  // A scheduled workflow with no clock has never been given one.
-  return next.schedule !== "manual" && !row.next_run_at;
-}
-
-const TARGET_TABLES = [
-  ["pipeline", "etl_pipelines", "pipeline"],
-  ["ml_schedule", "ml_schedules", "ML schedule"],
-  ["notebook", "user_python_notebooks", "notebook"],
-  ["swarm", "swarms", "swarm"],
-  ["prep_flow", "user_prep_flows", "prep flow"],
-  ["dashboard_refresh", "bi_dashboards", "dashboard"],
-  ["data_monitor", "data_monitors", "data monitor"],
-  ["sub_workflow", "workflows", "workflow"],
-] as const;
-
-/** Names the first target that is gone, so the refusal is actionable. */
-async function missingTargets(
-  userId: string,
-  graph: WorkflowGraph,
-  selfId: string,
-): Promise<string | null> {
-  for (const [kind, table, what] of TARGET_TABLES) {
-    const wanted = graph.nodes
-      .filter((n) => n.kind === kind)
-      .map((n) => n.targetId ?? "")
-      .filter(Boolean);
-    if (!wanted.length) continue;
-    if (kind === "sub_workflow" && wanted.includes(selfId)) {
-      return "A workflow cannot run itself";
-    }
-    const { data: rows } = await supabaseAdmin
-      .from(table)
-      .select("id")
-      .eq("user_id", userId)
-      .in("id", wanted);
-    const found = new Set((rows ?? []).map((r) => String(r.id)));
-    if (wanted.some((id) => !found.has(id))) {
-      return `One step points at a ${what} that is gone, or is not yours.`;
-    }
-  }
-  const names = graph.nodes.filter((n) => n.kind === "sql_models").flatMap((n) => n.models ?? []);
-  if (names.length) {
-    const { data: rows } = await supabaseAdmin
-      .from("sql_models")
-      .select("name")
-      .eq("user_id", userId)
-      .in("name", names);
-    const found = new Set((rows ?? []).map((r) => String(r.name)));
-    const lost = names.find((n) => !found.has(n));
-    if (lost) return `No SQL model named "${lost}" — a workflow can only build models you own.`;
-  }
-  return null;
-}
 
 export const workflowCreate = createServerFn({ method: "POST" })
   .validator((input: unknown) =>

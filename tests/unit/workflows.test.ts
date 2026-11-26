@@ -591,7 +591,7 @@ describe("nothing in the inspector asks for a notation", () => {
     const src = rd("src/routes/_authenticated/workflows.tsx");
     expect(src).toContain("workflows: res.workflows.filter((w) => w.id !== selectedId)");
     // Belt and braces: the save refuses it whatever the picker showed.
-    const fns = rd("src/utils/workflows.functions.ts");
+    const fns = rd("src/utils/workflows/definition.server.ts");
     expect(fns).toContain('return "A workflow cannot run itself";');
   });
 
@@ -714,7 +714,7 @@ describe("audit, IAM and logs", () => {
     // Every handler scopes by the caller.
     expect((fns.match(/resolveCaller\(data\.accessToken\)/g) ?? []).length).toBeGreaterThan(8);
     // And a step cannot point at somebody else's pipeline, model or notebook.
-    expect(fns).toContain("is not yours.");
+    expect(rd("src/utils/workflows/definition.server.ts")).toContain("is not yours.");
     expect(fns).toContain('.eq("user_id", userId)');
     // The adapters check ownership again at run time, not only at save.
     expect(rd("src/utils/workflows/adapters.server.ts")).toContain("async function owned(");
@@ -823,6 +823,9 @@ describe("what each new kind of step needs before it can be saved", () => {
       if (kind === "http") n = httpNode("a", { method: "GET", url: "https://example.test/hook" });
       if (kind === "sql_models") n = { id: "a", kind, label: "", models: [] };
       if (kind === "approval") n = { id: "a", kind, label: "Sign off" };
+      if (kind === "kubeflow_run") {
+        n = { id: "a", kind, label: "", kubeflow: { integrationId: "c", pipelineId: "p" } };
+      }
       if (kind === "condition") {
         n = condNode("a", "1 == 1");
         nodes = [n, node("b")];
@@ -1052,7 +1055,9 @@ describe("the wiring", () => {
   });
 
   it("offers, and re-checks, only the caller's own things", () => {
-    const fns = rd("src/utils/workflows.functions.ts");
+    // The re-check is the one definition path every save takes (R541).
+    const fns =
+      rd("src/utils/workflows.functions.ts") + rd("src/utils/workflows/definition.server.ts");
     for (const table of [
       "etl_pipelines",
       "ml_schedules",
@@ -1110,7 +1115,13 @@ describe("the wiring", () => {
   it("only ever offers, and starts, the caller's own work", () => {
     const fns = rd("src/utils/workflows.functions.ts");
     expect(fns).toContain("resolveCaller");
-    expect(fns).toContain("missingTargets");
+    expect(fns).toContain("applyWorkflowDefinition(");
+    const def = rd("src/utils/workflows/definition.server.ts");
+    expect(def).toContain('return missingTargets(userId, graph, selfId ?? "");');
+    // And the one write every source takes runs those checks first.
+    expect(def).toMatch(
+      /const invalid = await validateDefinition\(userId, def, id\);\s*if \(invalid\) return \{ ok: false, error: invalid \};/,
+    );
     const adapters = rd("src/utils/workflows/adapters.server.ts");
     // Every start re-checks ownership at run time too, not just at save.
     expect(adapters.match(/\.eq\("user_id", userId\)/g)?.length ?? 0).toBeGreaterThanOrEqual(3);

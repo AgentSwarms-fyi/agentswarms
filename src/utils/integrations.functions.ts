@@ -56,6 +56,16 @@ const MlflowTestSchema = z.object({
   password: z.string().max(4000).default(""),
 });
 
+const KubeflowTestSchema = z.object({
+  access_token: z.string().min(1).max(10000),
+  /** The saved connection being edited, whose stored token a blank field keeps. */
+  id: z.string().uuid().optional(),
+  api_url: z.string().min(1).max(500),
+  auth: z.enum(["none", "token"]).default("none"),
+  token: z.string().max(8000).default(""),
+  namespace: z.string().max(63).default(""),
+});
+
 const FirecrawlTestSchema = z.object({
   access_token: z.string().min(1).max(10000),
   api_key: z.string().min(1).max(2000),
@@ -373,6 +383,67 @@ export const testMlflowServer = createServerFn({ method: "POST" })
         username: data.username,
         token: typed.token,
         password: typed.password,
+      });
+    },
+  );
+
+// Live-test a Kubeflow Pipelines server (R540) before its connection is saved.
+export const testKubeflowServer = createServerFn({ method: "POST" })
+  .validator((input: unknown) => KubeflowTestSchema.parse(input))
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      TestResult & { version?: string | null; pipelines?: number; multiUser?: boolean }
+    > => {
+      const auth = await validateAccessToken(data.access_token);
+      if (!auth.ok) return { ok: false, detail: auth.detail };
+      const limited = await integrationTestGate(auth.userId);
+      if (limited) return limited;
+      const { integrationHosts } = await import("./providers/integrationHosts");
+      const sendTo = integrationHosts("kubeflow");
+      let typed: Record<string, string>;
+      try {
+        typed = await resolveTypedConfig(auth.userId, "kubeflow", "kubeflow", {
+          api_url: data.api_url,
+          token: data.token,
+        });
+      } catch (e) {
+        return resolveFailure(e);
+      }
+      if (data.auth === "token" && !(typed.token ?? "").trim() && data.id) {
+        // Blank = the saved token, which is never sent back to the page. It
+        // goes to the address being tested, so a shared secret in it resolves
+        // only if its owner allowed that host.
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        const { resolveIntegrationConfig } = await import("./providers/integrationConfig.server");
+        const { data: row } = await supabaseAdmin
+          .from("integrations")
+          .select("config")
+          .eq("id", data.id)
+          .eq("user_id", auth.userId)
+          .eq("type", "kubeflow")
+          .maybeSingle();
+        if (row?.config) {
+          try {
+            const cfg = (await resolveIntegrationConfig(
+              auth.userId,
+              "kubeflow",
+              row.config as Record<string, unknown>,
+              { sendTo: () => sendTo({ api_url: typed.api_url }) },
+            )) as Record<string, unknown>;
+            typed.token = typeof cfg.token === "string" ? cfg.token : "";
+          } catch (e) {
+            return resolveFailure(e);
+          }
+        }
+      }
+      const { testKubeflowCore } = await import("./integrations/testAdapters.server");
+      return testKubeflowCore({
+        api_url: typed.api_url,
+        auth: data.auth,
+        token: typed.token,
+        namespace: data.namespace,
       });
     },
   );

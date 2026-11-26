@@ -25,9 +25,9 @@ both the orders pipeline and the customers model have finished" is not
 expressible as a chain, so the workaround is to stagger cron times and hope the
 first is done before the second starts. That hope is what a workflow removes.
 
-## The fifteen kinds of step
+## The sixteen kinds of step
 
-Nine of them start work the platform already knows how to do. Two reach
+Nine of them start work the platform already knows how to do. Three reach
 outside it. Four are control flow, which every orchestrator has to own itself
 because it is about the graph rather than about any one system.
 
@@ -47,10 +47,11 @@ because it is about the graph rather than about any one system.
 
 ### Reaching outside
 
-| Kind     | What it does                                                                                                                                   |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `http`   | One request through `safeFetch`, with SSRF guards and `{{secret:NAME}}` resolved server-side (a secret shared with you only in a header, toward a host its owner allowed). Any 2xx is success unless you name the statuses. |
-| `notify` | An in-app notification, mirrored to whatever notification integrations are connected.                                                          |
+| Kind           | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `http`         | One request through `safeFetch`, with SSRF guards and `{{secret:NAME}}` resolved server-side (a secret shared with you only in a header, toward a host its owner allowed). Any 2xx is success unless you name the statuses.                                                                                                                                                                                                                                    |
+| `notify`       | An in-app notification, mirrored to whatever notification integrations are connected.                                                                                                                                                                                                                                                                                                                                                                          |
+| `kubeflow_run` | Runs a pipeline on one of the owner's Kubeflow Pipelines connections (R540) and polls it: the chosen version, or the newest when the step starts, with each parameter typed against that version's own inputs. `{{params.x}}` works in the values. A run that fails names the step that failed (Kubeflow Pipelines 2.18 gives no reason over its API, so its log in Kubeflow says why); a workflow that gives up on the step leaves the run going on Kubeflow. |
 
 ### Control flow
 
@@ -237,6 +238,32 @@ and "wrong token" all answer one undifferentiated **404**, so a caller holding a
 valid token for one workflow cannot enumerate the ids of the others. Rate
 limited by `WORKFLOW_TRIGGER_PER_MIN` (default 6), globally rather than per
 process so the ceiling holds across replicas.
+
+### Deploying from your repository
+
+A workflow kept as a file in the connected GitHub or GitLab repository (ML
+pipelines → Repository → Save to repo) can be deployed by CI:
+
+```json
+{ "workflow_id": "…", "sync": true, "ref": "<commit sha>", "run": false }
+```
+
+- **`sync: true`** makes the workflow's file at `ref` its definition before
+  anything runs.
+- **`ref`** must be a commit on the branch the repository is connected with
+  (its head or its history), or that branch's name. Another branch is refused
+  with **409**, so only reviewed work is deployed. Without it, the branch head
+  is used.
+- **The file is held to every rule an editor save is.** It is written through
+  the same function. A file that fails answers **422** and changes nothing.
+- **`run: false`** deploys without running, and works while the workflow is
+  paused.
+- **The answer.** A run answers **202** with `deployed`, `commit` and a
+  one-line `changes`; `run: false` answers **200**.
+
+The deploy is audited as `workflow.repo.deploy`. See
+[ML pipelines in your repository](ML.md#ml-pipelines-in-your-repository) for
+the file format and the CI jobs.
 
 ## Who may run it, and what gets recorded
 

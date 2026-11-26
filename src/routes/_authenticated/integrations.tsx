@@ -18,6 +18,8 @@ import { readPageIntent, type PageIntent } from "@/lib/pageIntent";
 import { SlackTab } from "@/components/integrations/SlackTab";
 import { TeamsTab } from "@/components/integrations/TeamsTab";
 import { MlflowConnectionsPanel } from "@/components/integrations/MlflowConnectionsPanel";
+import { KubeflowConnectionsPanel } from "@/components/integrations/KubeflowConnectionsPanel";
+import { GitRepositoryPanel } from "@/components/integrations/GitRepositoryPanel";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -58,6 +60,8 @@ const INTEGRATION_TABS = [
   "teams",
   "n8n",
   "mlflow",
+  "kubeflow",
+  "git",
 ] as const;
 type IntegrationTab = (typeof INTEGRATION_TABS)[number];
 
@@ -561,10 +565,20 @@ function IntegrationsPage() {
             <TabsTrigger value="teams">Teams</TabsTrigger>
             <TabsTrigger value="n8n">n8n workflows</TabsTrigger>
             <TabsTrigger value="mlflow">MLflow</TabsTrigger>
+            <TabsTrigger value="kubeflow">Kubeflow</TabsTrigger>
+            <TabsTrigger value="git">Git repository</TabsTrigger>
           </TabsList>
 
           <TabsContent value="mlflow" className="space-y-4">
             <MlflowConnectionsPanel />
+          </TabsContent>
+
+          <TabsContent value="kubeflow" className="space-y-4">
+            <KubeflowConnectionsPanel />
+          </TabsContent>
+
+          <TabsContent value="git" className="space-y-4">
+            <GitRepositoryPanel />
           </TabsContent>
 
           <TabsContent value="slack" className="space-y-4">

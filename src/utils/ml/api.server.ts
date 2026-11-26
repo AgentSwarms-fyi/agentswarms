@@ -240,7 +240,15 @@ export async function registerExternalVersion(
   },
   opts: { userId: string; apiKeyId?: string | null },
 ): Promise<
-  | { ok: true; versionId: string; version: number; promoted: boolean; promotionError?: string }
+  | {
+      ok: true;
+      versionId: string;
+      version: number;
+      promoted: boolean;
+      /** The model's production needs an approver; the request is raised. */
+      promotionPending?: boolean;
+      promotionError?: string;
+    }
   | { ok: false; error: string }
 > {
   if (!/^s3:\/\/[^/]+\/.+/.test(input.artifact_uri)) {
@@ -305,10 +313,12 @@ export async function registerExternalVersion(
   // The version is registered whatever the promotion does; a promotion that
   // failed is answered as such, not folded into "registered" (R81).
   let promoted = false;
+  let promotionPending = false;
   let promotionError: string | undefined;
   if (input.promote || !model.production_version_id) {
     const res = await promoteVersion(model, v.id, opts.userId);
-    promoted = res.ok;
+    promoted = res.ok && !res.pending;
+    promotionPending = res.ok && Boolean(res.pending);
     if (!res.ok) promotionError = res.error;
   }
   return {
@@ -316,6 +326,7 @@ export async function registerExternalVersion(
     versionId: v.id,
     version,
     promoted,
+    ...(promotionPending ? { promotionPending } : {}),
     ...(promotionError ? { promotionError } : {}),
   };
 }
@@ -323,6 +334,13 @@ export async function registerExternalVersion(
 /**
  * Make a version the production one; the previous production version is
  * archived. The one guarded promotion serves every path.
+ *
+ * FOUND IN R541. On a model whose production needs a second person's yes,
+ * this promoted anyway: the page asked the approvers, but a scheduled
+ * retrain set to "promote if better" and the registration API's `promote`
+ * both came here and went straight to applyPromotion, so the gate guarded
+ * only the button. A gated model now gets the request instead, whoever
+ * asks, and the answer says so (`pending`).
  *
  * FOUND FROM THE SURVEY (R81). This made the three writes in the order R73
  * fixed on the page path — archive, stage, pointer — and dropped every
@@ -334,7 +352,7 @@ export async function promoteVersion(
   model: MlModelRow,
   versionId: string,
   userId: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; pending?: true } | { ok: false; error: string }> {
   const { data: version, error: readErr } = await supabaseAdmin
     .from("ml_model_versions")
     .select("*")
@@ -346,7 +364,14 @@ export async function promoteVersion(
       error: `Could not read the version to promote: ${readErr?.message ?? "not found"}. Nothing changed.`,
     };
   }
-  const { applyPromotion } = await import("./promote.server");
+  const { applyPromotion, promotionGated, requestPromotion } = await import("./promote.server");
+  if (promotionGated(model, "production")) {
+    if (version.status !== "ready") {
+      return { ok: false, error: "Only a trained version can serve production" };
+    }
+    const asked = await requestPromotion(model, version as MlVersionRow, userId);
+    return asked.ok ? { ok: true, pending: true } : asked;
+  }
   const res = await applyPromotion(model, version as MlVersionRow, "production", userId);
   if (res.ok) model.production_version_id = versionId;
   return res;

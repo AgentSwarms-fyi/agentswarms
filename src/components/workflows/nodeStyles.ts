@@ -8,6 +8,7 @@
 import {
   Bell,
   Blocks,
+  Boxes,
   Brain,
   Braces,
   CheckSquare,
@@ -110,6 +111,13 @@ export const KIND_STYLE: Record<WorkflowNodeKind, KindStyle> = {
     tile: "border-orange-500/40 bg-orange-500/10 hover:bg-orange-500/20 text-orange-700 dark:text-orange-300",
     blurb: "Call somebody else's API",
   },
+  kubeflow_run: {
+    icon: Boxes,
+    ring: "border-teal-500/60",
+    chip: "bg-teal-500/15 text-teal-600 dark:text-teal-400",
+    tile: "border-teal-500/40 bg-teal-500/10 hover:bg-teal-500/20 text-teal-700 dark:text-teal-300",
+    blurb: "Run a pipeline on your Kubeflow",
+  },
   notify: {
     icon: Bell,
     ring: "border-yellow-500/60",
@@ -157,7 +165,7 @@ export const KIND_GROUPS: { label: string; hint: string; kinds: WorkflowNodeKind
   {
     label: "Models and agents",
     hint: "What runs on top of those tables",
-    kinds: ["ml_schedule", "notebook", "swarm"],
+    kinds: ["ml_schedule", "kubeflow_run", "notebook", "swarm"],
   },
   {
     label: "Publish and check",
@@ -186,11 +194,20 @@ export const KIND_GROUPS: { label: string; hint: string; kinds: WorkflowNodeKind
 export function stepRunLink(
   kind: WorkflowNodeKind,
   targetRunId: string | null | undefined,
-): { href: string; label: string } | null {
+  output?: Record<string, unknown> | null,
+): { href: string; label: string; external?: true } | null {
   // "detached" is the sentinel for work that settles its own step and never
   // had a run row to point at.
   if (!targetRunId || targetRunId === "detached") return null;
   switch (kind) {
+    case "kubeflow_run": {
+      // The run's own page on the team's Kubeflow (R540), from the address
+      // the server built; anything but http(s) is not a link.
+      const url = typeof output?.url === "string" ? output.url : "";
+      return /^https?:\/\//i.test(url)
+        ? { href: url, label: "Open in Kubeflow", external: true }
+        : null;
+    }
     case "swarm":
       // The one true deep link: a swarm run has its own observability page.
       return { href: `/analytics/observability/${targetRunId}`, label: "Trace" };

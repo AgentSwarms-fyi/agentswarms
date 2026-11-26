@@ -178,6 +178,7 @@ describe("the rail the docs checker reads", () => {
       "Feature views",
       "Experiments",
       "ML Models",
+      "ML pipelines",
       "Model serving",
       "ML operations",
     ]);

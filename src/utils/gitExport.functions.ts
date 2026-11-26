@@ -100,7 +100,14 @@ export const gitSaveConfig = createServerFn({ method: "POST" })
         repo: z.string().min(1).max(255),
         branch: z.string().min(1).max(255),
         base_path: z.string().max(255).optional(),
-        host: z.string().url().max(255).optional().or(z.literal("")),
+        // A web address only: it becomes the API base and a link on the page.
+        host: z
+          .string()
+          .url()
+          .max(255)
+          .refine((h) => /^https?:\/\//i.test(h), "The host must start with https:// or http://")
+          .optional()
+          .or(z.literal("")),
         // Omit to keep the existing token; empty string clears it.
         token: z.string().max(4096).optional(),
       })

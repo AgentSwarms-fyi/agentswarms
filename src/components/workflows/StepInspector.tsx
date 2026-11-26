@@ -2,7 +2,7 @@
 //
 // Two halves, deliberately separated: WHAT this step runs, which is different
 // for every kind, and HOW the run treats it — when it may start, how often to
-// retry, when to give up — which is the same for all fifteen. Mixing them
+// retry, when to give up — which is the same for all sixteen. Mixing them
 // meant an author hunting for "retries" in a different place depending on the
 // step they had selected.
 import { Trash2 } from "lucide-react";
@@ -19,6 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   NODE_KIND_LABEL,
+  pickPlaceholder,
   TRIGGER_RULES,
   TRIGGER_RULE_LABEL,
   type WorkflowNode,
@@ -26,6 +27,7 @@ import {
 } from "@/lib/workflows";
 import type { WorkflowCandidates } from "@/utils/workflows.functions";
 import { ConditionBuilder, Field, HeaderRows, ModelPicker, TemplatedText } from "./inspectorFields";
+import { KubeflowStepFields } from "./KubeflowStepFields";
 import { KIND_STYLE } from "./nodeStyles";
 
 type Patch = (patch: Partial<WorkflowNode>) => void;
@@ -173,7 +175,7 @@ function Picker({
         onValueChange={(v) => onChange(v, options.find((o) => o.value === v)?.label ?? "")}
       >
         <SelectTrigger className="h-7 text-xs">
-          <SelectValue placeholder={`Pick a ${label.toLowerCase()}…`} />
+          <SelectValue placeholder={pickPlaceholder(label)} />
         </SelectTrigger>
         <SelectContent>
           {options.length === 0 ? (
@@ -367,6 +369,8 @@ function WhatItRuns({
           hint="The question lands in the approvals inbox beside every other one. The run waits — set a timeout above if it should not wait forever."
         />
       );
+    case "kubeflow_run":
+      return <KubeflowStepFields node={node} params={params} onChange={onChange} />;
     case "http": {
       const http = node.http ?? { method: "POST" as const, url: "" };
       const set = (patch: Partial<NonNullable<WorkflowNode["http"]>>) =>

@@ -3,28 +3,34 @@
 // first's rename. Only the save sets this table's updated_at — runs and the
 // scheduler write other columns and no trigger moves it — so updated_at is the
 // version: the save lands only on the one the page read. Pinned by reading the
-// server function and the page.
+// server function and the page. Since R541 the write itself is the one
+// definition path (definition.server.ts) that a repository update and a CI
+// deploy also take; the editor's save hands it the version it read.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
-const server = read("src/utils/workflows.functions.ts");
+const fns = read("src/utils/workflows.functions.ts");
+const server = read("src/utils/workflows/definition.server.ts");
 const page = read("src/routes/_authenticated/workflows.tsx");
 
 describe("workflowSave", () => {
   it("updates only on the version the page read, when it sends one", () => {
-    expect(server).toContain("expectedUpdatedAt: z.string().min(1).optional(),");
+    expect(fns).toContain("expectedUpdatedAt: z.string().min(1).optional(),");
+    expect(fns).toMatch(
+      /data\.overwrite\s*\? \{ overwrite: true \}\s*: \{ expectedUpdatedAt: data\.expectedUpdatedAt as string \}/,
+    );
     expect(server).toMatch(
-      /\.eq\("id", data\.id\)\s*\.eq\("user_id", userId\);\s*if \(data\.expectedUpdatedAt\) q = q\.eq\("updated_at", data\.expectedUpdatedAt\);\s*const \{ data: row, error \} = await q\.select\("id, updated_at"\)\.maybeSingle\(\);/,
+      /\.eq\("id", id\)\s*\.eq\("user_id", userId\);\s*if \(opts\.expectedUpdatedAt\) q = q\.eq\("updated_at", opts\.expectedUpdatedAt\);\s*const \{ data: row, error \} = await q\.select\("id, updated_at"\)\.maybeSingle\(\);/,
     );
     expect(server).toContain("return { ok: true, updatedAt: String(row.updated_at) };");
   });
 
   it("tells a workflow that moved on from one that is gone", () => {
     expect(server).toMatch(
-      /if \(data\.expectedUpdatedAt\) \{[^]*?if \(stillError\) return \{ ok: false, error: stillError\.message \};\s*if \(still\) \{\s*return \{\s*ok: false,\s*stale: true,/,
+      /if \(opts\.expectedUpdatedAt\) \{[^]*?if \(stillError\) return \{ ok: false, error: stillError\.message \};\s*if \(still\) \{\s*return \{\s*ok: false,\s*stale: true,/,
     );
     expect(server).toMatch(
       /\}\s*return \{ ok: false, error: "Workflow not found" \};\s*\}\s*return \{ ok: true, updatedAt/,
@@ -32,8 +38,10 @@ describe("workflowSave", () => {
   });
 
   it("is the only writer that sets updated_at", () => {
-    const sets = server.match(/updated_at: new Date\(\)\.toISOString\(\)/g) ?? [];
+    const sets = (fns + server).match(/updated_at: new Date\(\)\.toISOString\(\)/g) ?? [];
     expect(sets).toHaveLength(1);
+    // The repository link records its own sync time and leaves the version alone.
+    expect(read("src/utils/mlRepo.server.ts")).not.toMatch(/from\("workflows"\)\s*\.update\(/);
     // A run, a claim by the scheduler or a status write must not move it.
     expect(read("src/utils/workflows/run.server.ts")).not.toMatch(/updated_at:(?!\s*string)/);
   });

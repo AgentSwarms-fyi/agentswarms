@@ -43,6 +43,15 @@ const SEVERITY_STYLE = {
   warn: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
 } as const;
 
+/** An ML pipeline opens in the workflow editor, where it is run and changed (R540). */
+function PipelineLink({ id, name }: { id: string; name: string }) {
+  return (
+    <Link to="/workflows" search={{ open: id }} className="font-medium hover:underline">
+      {name}
+    </Link>
+  );
+}
+
 function ModelLink({ id, name, tab }: { id: string; name: string; tab: ModelTab }) {
   return (
     <Link
@@ -97,7 +106,13 @@ function OperationsPage() {
   }, [reload]);
   // Something running changes on its own; nothing running, nothing to poll.
   useEffect(() => {
-    if (!data || (data.running.length === 0 && data.predicting.length === 0)) return;
+    if (
+      !data ||
+      (data.running.length === 0 &&
+        data.predicting.length === 0 &&
+        data.pipelineRunning.length === 0)
+    )
+      return;
     const t = setInterval(() => void reload(), 10_000);
     return () => clearInterval(t);
   }, [data, reload]);
@@ -133,7 +148,7 @@ function OperationsPage() {
           </div>
           <Skeleton className="h-40 rounded-xl" />
         </div>
-      ) : data.models === 0 ? (
+      ) : data.models === 0 && data.pipelines === 0 ? (
         <EmptyState
           icon={Activity}
           title="No models yet"
@@ -152,7 +167,10 @@ function OperationsPage() {
               value={fmtInt(data.attention.length)}
               accent={data.attention.length ? "text-amber-700 dark:text-amber-400" : undefined}
             />
-            <Stat label="Training now" value={fmtInt(data.running.length)} />
+            <Stat
+              label="Running now"
+              value={fmtInt(data.running.length + data.pipelineRunning.length)}
+            />
             <Stat label="Predicting now" value={fmtInt(data.predicting.length)} />
             <Stat label="Scheduled" value={fmtInt(data.upcoming.length)} />
           </div>
@@ -179,7 +197,11 @@ function OperationsPage() {
                       />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm">
-                          <ModelLink id={a.model_id} name={a.model_name} tab={a.tab} />
+                          {a.pipeline_id ? (
+                            <PipelineLink id={a.pipeline_id} name={a.model_name} />
+                          ) : (
+                            <ModelLink id={a.model_id} name={a.model_name} tab={a.tab} />
+                          )}
                           <span className="text-muted-foreground"> · {a.what}</span>
                         </p>
                         {a.detail ? (
@@ -200,13 +222,25 @@ function OperationsPage() {
             )}
           </Section>
 
-          {data.running.length + data.predicting.length > 0 ? (
+          {data.running.length + data.predicting.length + data.pipelineRunning.length > 0 ? (
             <Section
               title="Running now"
-              hint="Training, imports and batch predictions in progress. A job waiting for room, such as a node with a free GPU, says so."
+              hint="ML pipelines, training, imports and batch predictions in progress. A job waiting for room, such as a node with a free GPU, says so."
             >
               <Card>
                 <CardContent className="divide-y p-0">
+                  {data.pipelineRunning.map((r) => (
+                    <div key={r.id} className="flex items-start gap-3 px-4 py-3">
+                      <JobStatusChip status="running" />
+                      <p className="min-w-0 flex-1 text-sm">
+                        <PipelineLink id={r.workflow_id} name={r.name} />
+                        <span className="text-muted-foreground"> · pipeline run</span>
+                      </p>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        started {relTime(r.started_at)}
+                      </span>
+                    </div>
+                  ))}
                   {data.running.map((j) => (
                     <div key={j.id} className="flex items-start gap-3 px-4 py-3">
                       <JobStatusChip status={j.status} />
@@ -299,7 +333,10 @@ function OperationsPage() {
             )}
           </Section>
 
-          <Section title="Recently finished" hint="The last fifteen jobs and batch predictions.">
+          <Section
+            title="Recently finished"
+            hint="The last fifteen ML pipeline runs, jobs and batch predictions."
+          >
             {data.recent.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nothing has run yet.</p>
             ) : (
@@ -308,7 +345,7 @@ function OperationsPage() {
                   <table className="w-full text-sm">
                     <thead className="border-b text-left text-xs text-muted-foreground">
                       <tr>
-                        <th className="px-4 py-2 font-medium">Model</th>
+                        <th className="px-4 py-2 font-medium">Model or pipeline</th>
                         <th className="px-3 py-2 font-medium">What</th>
                         <th className="px-3 py-2 font-medium">Outcome</th>
                         <th className="px-3 py-2 text-right font-medium">Took</th>
@@ -319,25 +356,33 @@ function OperationsPage() {
                       {data.recent.map((r) => (
                         <tr key={`${r.type}-${r.id}`} className="border-b last:border-0">
                           <td className="px-4 py-2.5">
-                            <ModelLink
-                              id={r.model_id}
-                              name={r.model_name}
-                              tab={r.type === "job" ? "jobs" : "predictions"}
-                            />
+                            {r.type === "pipeline" ? (
+                              <PipelineLink id={r.workflow_id} name={r.name} />
+                            ) : (
+                              <ModelLink
+                                id={r.model_id}
+                                name={r.model_name}
+                                tab={r.type === "job" ? "jobs" : "predictions"}
+                              />
+                            )}
                           </td>
                           <td className="px-3 py-2.5 text-xs text-muted-foreground">
-                            {r.type === "job"
-                              ? `${r.import ? "Import" : "Training"}${r.version !== null ? ` v${r.version}` : ""}`
-                              : `Batch prediction${r.version !== null ? ` with v${r.version}` : ""}${
-                                  r.row_count ? ` · ${fmtInt(r.row_count)} rows` : ""
-                                }`}
+                            {r.type === "pipeline"
+                              ? "ML pipeline run"
+                              : r.type === "job"
+                                ? `${r.import ? "Import" : "Training"}${r.version !== null ? ` v${r.version}` : ""}`
+                                : `Batch prediction${r.version !== null ? ` with v${r.version}` : ""}${
+                                    r.row_count ? ` · ${fmtInt(r.row_count)} rows` : ""
+                                  }`}
                           </td>
                           <td className="px-3 py-2.5">
-                            <JobStatusChip status={r.status} />
+                            <JobStatusChip status={r.type === "pipeline" ? r.state : r.status} />
                           </td>
                           <td className="px-3 py-2.5 text-right text-xs tabular-nums text-muted-foreground">
                             {duration(
-                              r.type === "job" ? (r.started_at ?? r.created_at) : r.created_at,
+                              r.type === "prediction"
+                                ? r.created_at
+                                : (r.started_at ?? r.created_at),
                               r.finished_at,
                             ) ?? "—"}
                           </td>

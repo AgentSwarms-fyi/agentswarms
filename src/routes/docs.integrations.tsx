@@ -392,6 +392,20 @@ function IntegrationsDoc() {
             </DocLink>,
           ],
           [
+            "Git repository",
+            "GitHub or GitLab: ML pipelines and model configurations, notebooks and BI definitions kept as files, reviewed in pull requests, deployed by CI",
+            <DocLink key="g" to="/docs/workflows" hash="deploy-from-repo">
+              Integrations → Git repository
+            </DocLink>,
+          ],
+          [
+            "ML pipelines",
+            "Kubeflow Pipelines servers: a pipeline run as a step of an ML pipeline, waited for",
+            <DocLink key="k" to="/docs/workflows" hash="outside-steps">
+              Data science → ML pipelines
+            </DocLink>,
+          ],
+          [
             "Automation",
             "n8n workflows, triggered by an agent tool",
             <DocLink key="d" to="/docs/agents">

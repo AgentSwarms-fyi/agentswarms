@@ -253,7 +253,8 @@ describe("no data-side call site fetches a user's URL raw", () => {
   it("every GitLab call goes through gitlabFetch", () => {
     const src = readFileSync("src/utils/git/exporter.server.ts", "utf8");
     expect(src).not.toMatch(/await fetch\(\s*`\$\{base\}\/api\/v4/);
-    expect((src.match(/await gitlabFetch\(/g) ?? []).length).toBe(3);
+    // R541 added three reads: the branch head, a folder, a commit's branches.
+    expect((src.match(/await gitlabFetch\(/g) ?? []).length).toBe(6);
   });
 
   it("the DuckDB readers await the endpoint check and validate names", () => {

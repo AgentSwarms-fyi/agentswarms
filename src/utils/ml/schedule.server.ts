@@ -207,19 +207,30 @@ export async function evaluateScheduledVersions(): Promise<number> {
     }
     const better = beatsProduction(model.task, candidate, incumbent);
     let promoted = false;
+    let pending = false;
     let promotionError: string | null = null;
     if (candidate.status === "ready" && s.promote_if_better && better) {
       // FOUND FROM THE SURVEY (R81): this set `promoted` whatever the
       // promotion answered, and told the owner "is now in production".
+      // R541: a model whose production needs an approver is asked, not
+      // promoted — the request waits in the approvers' inbox.
       const res = await promoteVersion(model as MlModelRow, candidate.id, s.user_id);
-      promoted = res.ok;
+      promoted = res.ok && !res.pending;
+      pending = res.ok && Boolean(res.pending);
       if (!res.ok) promotionError = res.error;
     }
     const { error: stampErr } = await supabaseAdmin
       .from("ml_schedules")
       .update({
         evaluated_version_id: candidate.id,
-        last_status: candidate.status === "ready" ? (promoted ? "promoted" : "kept") : "failed",
+        last_status:
+          candidate.status !== "ready"
+            ? "failed"
+            : promoted
+              ? "promoted"
+              : pending
+                ? "awaiting_approval"
+                : "kept",
         ...(promotionError ? { last_error: promotionError } : {}),
         updated_at: new Date().toISOString(),
       })
@@ -237,9 +248,11 @@ export async function evaluateScheduledVersions(): Promise<number> {
           ? `Scheduled retrain of "${model.name}" failed`
           : promoted
             ? `"${model.name}" v${candidate.version} is now in production`
-            : promotionError
-              ? `"${model.name}" v${candidate.version} trained, but could not be promoted`
-              : `"${model.name}" v${candidate.version} trained; production kept`,
+            : pending
+              ? `"${model.name}" v${candidate.version} is better; waiting for approval to go into production`
+              : promotionError
+                ? `"${model.name}" v${candidate.version} trained, but could not be promoted`
+                : `"${model.name}" v${candidate.version} trained; production kept`,
       body:
         promotionError ??
         (candidate.status !== "ready"

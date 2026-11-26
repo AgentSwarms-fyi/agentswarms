@@ -15,6 +15,38 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-26 — R540 and R541: ML pipelines, and keeping them in your repository
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab. Neither migration (`20261203000000`, `20261204000000`) is applied on this database and no repository is connected, so the Kubeflow and repository steps that write were driven in the tests against stand-ins (`kubeflowPipelines.test.ts`, `mlRepo.test.ts`), not here. Kept: one workflow, "ML pipeline" (one Retrain step on the Nightly retrain schedule), and the model version its run trained.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| The rail | Data science | **ML pipelines** under Deploy, between ML Models and Model serving |
+| ML pipelines | nothing yet | the empty state, and **New ML pipeline** in the header and in the empty state |
+| Same | **New ML pipeline** | the workflow editor on "ML pipeline": Retrain → Score new rows, both ML schedule steps, unconfigured |
+| Editor | Retrain → ML schedule | the picker read "Pick a ml schedule…" (fixed: "Pick an ML schedule…"); picked Nightly retrain. There was no batch-scoring schedule to pick, so Score new rows was removed and the pipeline saved |
+| Editor palette | Models and agents | ML schedule, **Kubeflow pipeline** ("Run a pipeline on your Kubeflow"), Notebook, Swarm |
+| ML pipelines | the list | one card: the step "Retrain", "Models: revenue_facts · groups", "When started", "never run"; tiles 1 · 0 · 0 · 0 |
+| Same | **Run now** | the card read **running**, Running now 1, and a Recent runs row "running · a person" |
+| ML operations | while it ran | Running now 2: "ML pipeline · ML pipeline" (fixed: "· pipeline run") and "revenue_facts · groups · Training v76 (workflow)" |
+| Editor → Runs | the live run | opening it advanced it: **succeeded**, the Retrain step with its logs |
+| ML operations | after | Recently finished: "ML pipeline · ML pipeline run · succeeded · 2 min" above "Training v76 · succeeded · 89 s" |
+| Integrations → **Git repository** | `?tab=git` | the tab after Kubeflow: what it is for; Provider, Branch, Repository, Folder, Access token (picked from Secrets); **Save and check**, off while the repository is empty; "What lives in it" lists `agentswarms/ml/pipelines/`, `ml/models/`, `notebooks/`, `dashboards/ · semantic-models/` |
+| Same | folder → `team-ml`, provider → GitLab | the list follows the folder as it is typed; GitLab shows "Project (group/project)" (now "… or its id") and the Host field. Nothing saved |
+| ML pipelines | without migration `20261204000000` | "Keeping ML pipelines in a repository needs migration 20261204000000, which is not applied yet", but the hint saying where to connect a repository was gone too (fixed: the repository bar stays) |
+| ML pipelines, after the rebuild with the fixes | the same state | the hint is back above the list, and the migration note below it. The hint rendered as three columns (sentence, link, full stop), because its paragraph was a flex row; it is one run of text now, read on the final image |
+
+**Against a real Kubeflow Pipelines 2.18.0** (kind, single-user, port-forwarded), with the platform's own client and two pipelines compiled by the KFP SDK 2.18.0 (`kfp_e2e.mts`, in the session scratchpad):
+
+| Step | Result |
+| --- | --- |
+| Health | `{"version":"2.18.0","multiUser":false}` |
+| Pipelines, versions | score-rows and always-fails beside the two samples; score-rows' inputs read as `dry_run` BOOLEAN (default false), `rows` NUMBER_INTEGER (5), `table` STRING (required), `threshold` NUMBER_DOUBLE (0.5) |
+| Typing | `{table: "main.orders", rows: "3", threshold: "0.75", dry_run: "false"}` became `{"table":"main.orders","rows":3,"threshold":0.75,"dry_run":false}`; `rows: "three"` was refused before any call |
+| A run | PENDING → RUNNING (5 s) → SUCCEEDED (639 s, mostly image pulls); its page at `/#/runs/details/<id>` |
+| A failing run | FAILED in 161 s, at first said only "The Kubeflow run failed." (fixed: `The Kubeflow run failed at the step "fail"; its log in Kubeflow says why.`, re-read from the same run) |
+| A parameter the pipeline does not take, sent raw | Kubeflow's words: "Failed to create a new run: … parameter(s) provided are not required by pipeline: nope" |
+
 ## 2026-11-26 — R539: Data science in the order the work happens
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab. Nothing was written.

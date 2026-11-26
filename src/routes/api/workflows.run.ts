@@ -9,6 +9,13 @@
 // Authorization: Bearer wfk_…
 // Body: { workflow_id: "<uuid>", params?: { "day": "2026-01-01" } }
 // → 202 { accepted: true, run_id }
+//
+// A CI job deploys from the team's repository (R541) with
+//   { workflow_id, sync: true, ref?: "<commit sha>", run?: false }
+// which first makes the workflow's file at that commit its definition — the
+// commit must be on the branch the repository is connected with, and the
+// file must pass every check an editor save does — then runs it, or with
+// `run: false` only deploys it (allowed while the workflow is paused).
 import { createFileRoute } from "@tanstack/react-router";
 import { createHash, timingSafeEqual } from "node:crypto";
 
@@ -43,7 +50,13 @@ export const Route = createFileRoute("/api/workflows/run")({
         const token = auth.slice("Bearer ".length).trim();
         if (!token.startsWith("wfk_")) return json({ error: "Not a workflow trigger token" }, 401);
 
-        let body: { workflow_id?: unknown; params?: unknown };
+        let body: {
+          workflow_id?: unknown;
+          params?: unknown;
+          sync?: unknown;
+          ref?: unknown;
+          run?: unknown;
+        };
         try {
           body = (await request.json()) as typeof body;
         } catch {
@@ -86,7 +99,21 @@ export const Route = createFileRoute("/api/workflows/run")({
           }
           return json({ error: "Not found" }, 404);
         }
-        if (!workflow.is_active) return json({ error: "This workflow is paused" }, 409);
+        if (body.sync !== undefined && typeof body.sync !== "boolean") {
+          return json({ error: "sync must be true or false" }, 400);
+        }
+        if (body.run !== undefined && typeof body.run !== "boolean") {
+          return json({ error: "run must be true or false" }, 400);
+        }
+        if (body.ref !== undefined && (typeof body.ref !== "string" || !body.sync)) {
+          return json({ error: "ref is a commit sha, sent with sync: true" }, 400);
+        }
+        if (body.run === false && body.sync !== true) {
+          return json({ error: "run: false deploys without running, so it needs sync: true" }, 400);
+        }
+        if (!workflow.is_active && body.run !== false) {
+          return json({ error: "This workflow is paused" }, 409);
+        }
 
         const perMin = envInt("WORKFLOW_TRIGGER_PER_MIN", 6);
         // Global rather than per process, so the documented ceiling holds
@@ -107,14 +134,44 @@ export const Route = createFileRoute("/api/workflows/run")({
           }
         }
 
+        // Deploy from the repository first, so the run is of that commit.
+        let target = workflow;
+        let synced: { commit: string; changes: string } | null = null;
+        if (body.sync === true) {
+          const { pullWorkflowFromRepo } = await import("@/utils/mlRepo.server");
+          const { changesLine } = await import("@/lib/workflowFile");
+          const pulled = await pullWorkflowFromRepo(String(workflow.user_id), id, {
+            ref: typeof body.ref === "string" ? body.ref : undefined,
+            apply: true,
+            by: "ci",
+          });
+          if (!pulled.ok) return json({ error: pulled.error }, pulled.status ?? 422);
+          synced = { commit: pulled.commit, changes: changesLine(pulled.changes) };
+          if (body.run === false) return json({ deployed: true, ...synced }, 200);
+          const { data: fresh } = await supabaseAdmin
+            .from("workflows")
+            .select("*")
+            .eq("id", id)
+            .maybeSingle();
+          // Deleted between the deploy and the run: the deploy stands, nothing runs.
+          if (!fresh)
+            return json({ error: "The workflow was deleted", deployed: true, ...synced }, 409);
+          target = fresh;
+        }
+
         const { startWorkflowRun } = await import("@/utils/workflows/run.server");
         const res = await startWorkflowRun(
-          workflow as unknown as import("@/utils/workflows/run.server").WorkflowRow,
+          target as unknown as import("@/utils/workflows/run.server").WorkflowRow,
           "api",
           { params },
         );
-        if (!res.ok) return json({ error: res.error }, 409);
-        return json({ accepted: true, run_id: res.runId }, 202);
+        if (!res.ok) {
+          return json({ error: res.error, ...(synced ? { deployed: true, ...synced } : {}) }, 409);
+        }
+        return json(
+          { accepted: true, run_id: res.runId, ...(synced ? { deployed: true, ...synced } : {}) },
+          202,
+        );
       },
     },
   },

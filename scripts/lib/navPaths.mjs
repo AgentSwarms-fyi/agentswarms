@@ -60,6 +60,8 @@ export const PAGE_TABS = {
     "Teams",
     "n8n Workflows",
     "MLflow",
+    "Kubeflow",
+    "Git repository",
   ],
   IAM: ["Users", "Groups", "Access", "Attributes", "Budgets", "SSO", "Settings"],
   "Knowledge Base": ["Vector Store", "Embedding", "Chunking", "Retrieval", "Documents", "Sources"],

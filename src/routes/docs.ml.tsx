@@ -64,8 +64,11 @@ function MlDocsPage() {
               the same metrics.
             </li>
             <li>
-              <strong>Deploy:</strong> ML Models, the registry; Model serving, every endpoint, its
-              traffic split and how busy it is. <strong>Deploy a model</strong> there lists the
+              <strong>Deploy:</strong> ML Models, the registry; ML pipelines, a model&apos;s work
+              automated end to end (retrain, check, promote, score, or a pipeline on your Kubeflow),
+              each a workflow with an ML schedule or Kubeflow step, kept if you like as a file in
+              your GitHub or GitLab repository and deployed by CI; Model serving, every endpoint,
+              its traffic split and how busy it is. <strong>Deploy a model</strong> there lists the
               production versions with no endpoint.
             </li>
             <li>
@@ -290,7 +293,11 @@ function MlDocsPage() {
           ],
           [
             "Promotion approval",
-            "Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own",
+            "Named approvers per model, in the same inbox as swarm approvals; a requester can never approve their own; a scheduled retrain, the API and a CI deploy all ask rather than promote",
+          ],
+          [
+            "Pipelines as code",
+            "ML pipelines and model configurations as files in your GitHub or GitLab repository: save, update with a preview, import, and deploy a reviewed commit from CI",
           ],
           ["Scheduled retraining", "Cron/cadence, promote-when-better, one platform clock"],
           ["Public API", "Per-model scoped keys, rate limits, audited denials, BYO registration"],

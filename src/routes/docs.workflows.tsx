@@ -62,9 +62,9 @@ function WorkflowsDocs() {
         workaround is to stagger cron times and hope the first is done before the second starts.
       </Callout>
 
-      <H2 id="steps">The fifteen kinds of step</H2>
+      <H2 id="steps">The sixteen kinds of step</H2>
       <P>
-        Nine start work the platform already does. Two reach outside it. Four are control flow,
+        Nine start work the platform already does. Three reach outside it. Four are control flow,
         which an orchestrator has to own itself because it is about the graph rather than about any
         one system.
       </P>
@@ -128,6 +128,10 @@ function WorkflowsDocs() {
           {
             name: "Notify",
             body: "An in-app notification, mirrored to whatever notification integrations are connected.",
+          },
+          {
+            name: "Kubeflow pipeline",
+            body: "Runs a pipeline on your Kubeflow Pipelines server, connected under Integrations → Kubeflow, and waits for it. Pick a version or take the newest when the step starts; each of that version's inputs gets a value, typed the way the pipeline declared it, and {{params.x}} works in them. A run that fails names the step that failed; its log in Kubeflow says why. The run's page opens from the run view. A workflow that gives up on the step leaves the run going on Kubeflow.",
           },
         ]}
       />
@@ -369,6 +373,30 @@ function WorkflowsDocs() {
         Accepted calls are rate limited by <C>WORKFLOW_TRIGGER_PER_MIN</C> (default 6), globally
         rather than per process so the ceiling holds across replicas.
       </P>
+
+      <H3 id="deploy-from-repo">Deploying from your repository</H3>
+      <P>
+        A workflow kept as a file in the repository connected under{" "}
+        <strong>Integrations → Git repository</strong> (ML pipelines → Repository → Save to repo)
+        can be deployed by CI. <C>sync: true</C> makes the file at <C>ref</C> the definition before
+        anything runs; <C>run: false</C> deploys without running, and works while the workflow is
+        paused.
+      </P>
+      <Code lang="json">{`{ "workflow_id": "…", "sync": true, "ref": "<commit sha>", "run": false }`}</Code>
+      <UL>
+        <li>
+          <C>ref</C> must be a commit on the connected branch (its head or its history), or that
+          branch&apos;s name. Another branch answers <C>409</C>, so only reviewed work is deployed.
+        </li>
+        <li>
+          The file is written through the same function as the editor&apos;s Save, so it meets the
+          same rules. A file that fails answers <C>422</C> and changes nothing.
+        </li>
+        <li>
+          A run answers <C>202</C> with <C>deployed</C>, <C>commit</C> and a one-line <C>changes</C>
+          ; a deploy alone answers <C>200</C>. Each is audited as <C>workflow.repo.deploy</C>.
+        </li>
+      </UL>
 
       <H3 id="limits">Knobs</H3>
       <Table

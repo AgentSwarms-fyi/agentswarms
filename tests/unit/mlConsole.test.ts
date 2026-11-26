@@ -236,9 +236,14 @@ describe("what ML operations puts first", () => {
     expect(lastRunOutcome("kept")).toBe("kept the production version");
     expect(lastRunOutcome("promoted")).toBe("promoted a better version");
     expect(lastRunOutcome("failed")).toBe("failed");
+    expect(lastRunOutcome("awaiting_approval")).toBe(
+      "trained a better version, waiting for approval",
+    );
     // The values schedule.server.ts writes are the ones worded here.
     const writer = rd("src/utils/ml/schedule.server.ts");
-    expect(writer).toContain('(promoted ? "promoted" : "kept")');
+    for (const value of ['"promoted"', '"awaiting_approval"', '"kept"', '"failed"']) {
+      expect(writer).toContain(value);
+    }
   });
 
   it("says how long a run took", () => {
@@ -258,6 +263,7 @@ describe("the Data science menu", () => {
       ["Develop", "Feature views", "/ml/features"],
       ["Develop", "Experiments", "/ml/experiments"],
       ["Deploy", "ML Models", "/ml"],
+      ["Deploy", "ML pipelines", "/ml/pipelines"],
       ["Deploy", "Model serving", "/ml/serving"],
       ["Monitor", "ML operations", "/ml/operations"],
     ]);

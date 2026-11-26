@@ -43,6 +43,7 @@ export const NODE_KINDS = [
   // Reaching outside
   "http",
   "notify",
+  "kubeflow_run",
   // Control flow
   "condition",
   "wait",
@@ -63,6 +64,7 @@ export const NODE_KIND_LABEL: Record<WorkflowNodeKind, string> = {
   data_monitor: "Data monitor",
   http: "HTTP request",
   notify: "Notify",
+  kubeflow_run: "Kubeflow pipeline",
   condition: "Condition",
   wait: "Wait",
   approval: "Approval",
@@ -131,6 +133,24 @@ export type WorkflowNode = {
     body?: string;
     /** Response statuses that count as success. Empty = any 2xx. */
     okStatuses?: number[];
+  };
+  /**
+   * `kubeflow_run` (R540): a pipeline on one of the owner's Kubeflow
+   * Pipelines connections, run with these parameters, waited for.
+   */
+  kubeflow?: {
+    /** The owner's own Kubeflow connection (an integrations row). */
+    integrationId: string;
+    pipelineId: string;
+    /** Empty = the pipeline's newest version, read when the step starts. */
+    versionId?: string;
+    /** Names, so a step reads without asking the server. */
+    pipelineName?: string;
+    versionName?: string;
+    /** Values for the pipeline's inputs, as text; may use {{params.x}}. */
+    parameters?: Record<string, string>;
+    /** Optional experiment to file the run under. */
+    experimentId?: string;
   };
   /** `wait`: how long, in seconds. */
   waitSeconds?: number;
@@ -515,6 +535,7 @@ export function referencedParams(graph: WorkflowGraph): string[] {
     scan(n.http?.url);
     scan(n.http?.body);
     for (const v of Object.values(n.http?.headers ?? {})) scan(v);
+    for (const v of Object.values(n.kubeflow?.parameters ?? {})) scan(v);
   }
   return [...found].sort();
 }
@@ -797,12 +818,28 @@ export function validateNodeTarget(n: WorkflowNode, named: string): string | nul
       }
       return null;
     }
+    case "kubeflow_run": {
+      const k = n.kubeflow;
+      if (!k?.integrationId) return `The Kubeflow step "${named}" has no connection chosen`;
+      if (!k.pipelineId) return `The Kubeflow step "${named}" has no pipeline chosen`;
+      const names = Object.keys(k.parameters ?? {});
+      if (names.length > KUBEFLOW_MAX_PARAMETERS) {
+        return `A Kubeflow step takes at most ${KUBEFLOW_MAX_PARAMETERS} parameters`;
+      }
+      const bad = names.find((p) => !KUBEFLOW_PARAM_NAME.test(p));
+      if (bad !== undefined) return `"${bad.slice(0, 40)}" is not a pipeline parameter name`;
+      return null;
+    }
     default:
       return n.targetId
         ? null
         : `The ${NODE_KIND_LABEL[n.kind].toLowerCase()} step "${named}" has nothing selected`;
   }
 }
+
+/** A Kubeflow pipeline's input names, as its compiler writes them. */
+export const KUBEFLOW_PARAM_NAME = /^[A-Za-z_][A-Za-z0-9_-]{0,99}$/;
+export const KUBEFLOW_MAX_PARAMETERS = 50;
 
 /** A step id that is stable enough to diff and unique enough to key on. */
 export function newNodeId(): string {
@@ -829,4 +866,21 @@ export function autoLayout(graph: WorkflowGraph, gapX = 260, gapY = 110): Workfl
       return p ? { ...n, x: p.x, y: p.y } : n;
     }),
   };
+}
+
+/**
+ * A picker's empty text: "Pick an ML schedule…", "Pick a notebook…".
+ * FOUND FROM THE UI (R541): lower-casing the label gave "Pick a ml
+ * schedule…". An acronym keeps its capitals and takes the article its
+ * spoken first letter does (an ML, an SQL, a KPI).
+ */
+export function pickPlaceholder(label: string): string {
+  const isAcronym = (w: string) => w.length > 1 && w === w.toUpperCase() && /[A-Z]/.test(w);
+  const words = label
+    .trim()
+    .split(/\s+/)
+    .map((w) => (isAcronym(w) ? w : w.toLowerCase()));
+  const first = words[0] ?? "";
+  const an = isAcronym(first) ? /^[AEFHILMNORSX]/.test(first) : /^[aeiou]/.test(first);
+  return `Pick ${an ? "an" : "a"} ${words.join(" ")}…`;
 }

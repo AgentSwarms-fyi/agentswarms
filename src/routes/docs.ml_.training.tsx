@@ -512,6 +512,13 @@ with agentswarms.start_run("churn-v2", params={"lr": 0.01, "depth": 6}) as run:
         decides whether to press. The audit names both people — <C>ml.version.promote.requested</C>{" "}
         when it is asked for, and <C>ml.version.promote</C> with <C>approved_by</C> when it happens.
       </P>
+      <P>
+        <strong>Whoever asks, it is a request.</strong> A scheduled retrain set to promote when
+        better, the registration API&apos;s <C>promote</C> and an ML pipeline deployed from CI go
+        through the same gate as the button: on a gated model they raise the request, the schedule
+        reads &ldquo;awaiting approval&rdquo; and the API answers <C>promotion_pending: true</C>.
+        Before R541 the schedule and the API promoted directly, so the gate guarded only the button.
+      </P>
 
       <NextPrev current="/docs/ml/training" />
     </>

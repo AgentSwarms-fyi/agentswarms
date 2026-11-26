@@ -419,6 +419,55 @@ export async function startNode(args: StartArgs): Promise<StartResult> {
           output: { status: res.status, body: res.body.slice(0, 500) },
         };
       }
+      case "kubeflow_run": {
+        // A pipeline on the owner's own Kubeflow Pipelines server (R540),
+        // started here and polled like any run the platform starts.
+        const k = node.kubeflow;
+        if (!k?.integrationId || !k.pipelineId) {
+          return { ok: false, error: "The Kubeflow step has no pipeline chosen" };
+        }
+        const { kubeflowConnectionOf } = await import("@/utils/ml/kubeflow.server");
+        const c = await kubeflowConnectionOf(userId, k.integrationId);
+        if (!c.ok) return { ok: false, error: c.error };
+        const kf = await import("@/utils/ml/kubeflowClient.server");
+        // The version is read now: "newest" means newest when the step runs,
+        // and the parameters are typed against that version's own inputs.
+        const versions = await kf.kubeflowVersions(c.conn, k.pipelineId);
+        const version = k.versionId ? versions.find((v) => v.id === k.versionId) : versions[0];
+        if (!version) {
+          return {
+            ok: false,
+            error: k.versionId
+              ? "That pipeline version is no longer on the Kubeflow server"
+              : "The pipeline has no versions on the Kubeflow server",
+          };
+        }
+        const values = Object.fromEntries(
+          Object.entries(k.parameters ?? {}).map(([name, v]) => [
+            name,
+            substituteParams(v, params),
+          ]),
+        );
+        const runParams = kf.runParameters(values, version.parameters);
+        const kfRunId = await kf.kubeflowStartRun(c.conn, {
+          pipelineId: k.pipelineId,
+          versionId: version.id,
+          displayName: `${node.label || k.pipelineName || "pipeline"} · workflow run ${args.runId.slice(0, 8)}`,
+          parameters: runParams,
+          experimentId: k.experimentId || null,
+        });
+        return {
+          ok: true,
+          // The connection travels with the run id: the poller reads no node.
+          targetRunId: `kubeflow:${k.integrationId}:${kfRunId}`,
+          output: {
+            kubeflow_run_id: kfRunId,
+            url: kf.kubeflowRunUrl(c.conn, kfRunId),
+            pipeline: k.pipelineName ?? k.pipelineId,
+            version: version.name,
+          },
+        };
+      }
     }
   } catch (e) {
     return { ok: false, error: (e as Error).message };
@@ -552,6 +601,30 @@ export async function pollNode(args: {
     case "wait": {
       const until = targetRunId.replace(/^wait:/, "");
       return Date.parse(until) <= Date.now() ? { done: true, ok: true } : { done: false };
+    }
+    case "kubeflow_run": {
+      // `kubeflow:<connection id>:<run id>`, see startNode.
+      const m = /^kubeflow:([0-9a-f-]{36}):([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/i.exec(targetRunId);
+      if (!m) return { done: true, ok: false, error: "The Kubeflow run's reference is malformed" };
+      const { kubeflowConnectionOf } = await import("@/utils/ml/kubeflow.server");
+      const c = await kubeflowConnectionOf(userId, m[1]);
+      if (!c.ok) {
+        // A connection that could not be READ is asked again next poll; one
+        // that was removed or turned off ends the step, with the reason.
+        return c.transient
+          ? unsettled({ message: c.error })
+          : { done: true, ok: false, error: c.error };
+      }
+      const kf = await import("@/utils/ml/kubeflowClient.server");
+      try {
+        const st = await kf.kubeflowRun(c.conn, m[2]);
+        if (!st.done) return { done: false };
+        return st.ok ? { done: true, ok: true } : { done: true, ok: false, error: st.error };
+      } catch (e) {
+        if ((e as { status?: number }).status === 404) return gone("Kubeflow run");
+        // Kubeflow unreachable for a moment is not the run failing.
+        return unsettled(e as Error);
+      }
     }
     default:
       // Immediate kinds settle at start and never reach the poller.

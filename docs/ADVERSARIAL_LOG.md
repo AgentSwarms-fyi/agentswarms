@@ -109,6 +109,66 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-26 — R541: a repository nobody could find, and an approval gate that guarded only the button
+
+**Why this round.** The user asked whether people can connect their own GitHub or GitLab repository for MLOps. The platform could already commit to one, but the settings were in BI's admin menu and covered only dashboards, semantic models and notebooks. Read as a data scientist who wants a pipeline reviewed in a pull request and deployed by CI. Also read as the model-risk reviewer whose sign-off is meant to stand between a retrain and production.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A model with approvers was promoted by its schedule, and by the API | S1 | **Found reading the code** while writing the CI dialog's line "a promotion still waits for its approvers". The page's **Promote** asked the approvers. But a scheduled retrain set to promote when better, and the registration API's `promote`, both called `promoteVersion`, which went straight to `applyPromotion`. The gate guarded only the button, while the model page said promotions need a second person. `promoteVersion` now raises the request on a gated model: the schedule reads "awaiting approval", the API answers `promotion_pending: true`, and production keeps serving. Run for real in a test: the approval row is raised, the production pointer does not move. |
+| A key typed into an HTTP step's address or body would have been written to the repository | S1 | **Found in review, before release.** The first check covered headers only. `?api_key=…` in the address, or a `password` field in a JSON or form body, went into the file, and a repository keeps every version forever. All three are now refused until the value names a secret, with the step and where the key is in the refusal. |
+| The repository settings were reachable only from BI's admin menu | S3 | **Found by the user.** **Integrations → Git repository** connects the repository once, with **Save and check** and a list of what lives in it. BI's dialog keeps the same form, shared. |
+| After the repository setting changed, an update would have read the same path from another repository | S3 | **Found in review.** A pipeline's link records which repository it is in (`github:acme/ml`). An update or a CI deploy against a different connected repository is refused, saying both names. A save writes a new file in the new one. |
+| A typed GitLab host could become a `javascript:` link | S3 | **Found in review.** The settings form checked the host with `z.string().url()`, which accepts `javascript:`. The file's link on the page was built from it. The host must now start with http(s), and a link is built only for a web address. Only the owner's own page showed it. |
+| Without the migration, ML pipelines hid the hint that says where to connect a repository | S3 | **Found reading the stack's state.** An error reading the link table blanked the repository bar. The bar now stays, and the error names migration `20261204000000`. A save stops with the same words before anything is committed. |
+| A step picker read "Pick a ml schedule…" | S4 | **Found in the UI test** (R540's pipeline). Acronyms keep their capitals and take their article: "Pick an ML schedule…". |
+| A running pipeline named "ML pipeline" read "ML pipeline · ML pipeline" | S4 | **Found in the UI test.** The row says "· pipeline run". |
+| The "connect a repository" hint rendered as three columns | S4 | **Found in the UI test.** The paragraph was a flex row, so the sentence, its link and the full stop were laid out side by side. It is one run of text now. |
+
+**Checked and sound.**
+- **One write path.** The editor's Save, Update from repo, Import and a CI deploy all go through `applyWorkflowDefinition`: the graph validates, the cron parses, and every step points at something its owner owns. A test drives a bad file through update and CI. It gets 422, and nothing changes.
+- **Only reviewed work is deployed.**
+  - A CI job's commit must be on the connected branch: GitHub compare reads `identical` or `behind`, and GitLab lists the branch among the commit's refs.
+  - Another branch named outright is refused.
+  - Both refusals run for real through the route handler.
+- **What was previewed is what is applied.** Update from repo applies the commit its preview read, not whatever the branch says a moment later.
+- **Nothing is overwritten.** A new pipeline's file takes the id as a suffix when a file of that name is already in the folder.
+- **Imports arrive paused.** A file with a schedule does not start running before someone has looked at it here.
+- **A name finds exactly one.** A step whose id is not the reader's is matched by name; an ML schedule by name and model. None or two matches are refused, naming the step.
+- **The token goes one way.** It is resolved only through `token.server.ts`, toward the configured host. The list of files that name a credential's destination is unchanged (`sharedSecretSinks.test.ts`).
+- **Still one 404.** The trigger door keeps a single undifferentiated 404. A workflow deleted between a deploy and its run answers 409, saying the deploy stands.
+
+**What would have been wrong to conclude.**
+
+- *"Promote asks, so promotion is gated."* The button asked. The two paths that promote without a person did not.
+
+### 2026-11-26 — R540: ML pipelines were in the product but not where people look
+
+**Why this round.** The user could not find ML pipelines under ML operations. Retraining, scoring and approvals already ran as workflows, but under Data engineering, and nothing connected the platform to a team's Kubeflow. Read as the data scientist looking for "my model's pipeline", and as the team that already keeps pipelines on Kubeflow.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| No ML pipelines in Data science | S3 | **Found by the user.** **ML pipelines** (under Deploy) lists the workflows that train, score or run Kubeflow, with their steps, models, trigger and runs. **New ML pipeline** starts from retrain-then-score. ML operations lists pipeline runs and failed ones. |
+| A team's Kubeflow pipelines could not run beside the platform's steps | S3 | **Found by the user's question.** A Kubeflow Pipelines server is a connection, and a **Kubeflow pipeline** step runs one with typed parameters and waits for it. |
+| A failed Kubeflow run said only "The Kubeflow run failed." | S3 | **Found running against a real Kubeflow.** The client read a reason from the run's or a task's `error`, and Kubeflow Pipelines 2.18.0 fills neither: the reason is only in the step's log. The task list is flat and mixes the pipeline's steps with its machinery (root, executor, drivers, the workflow, `(0)` copies). A step of the pipeline is a name with a `<name>-driver` task beside it, so the message now names it: `The Kubeflow run failed at the step "fail"; its log in Kubeflow says why.` Re-read from the same failed run, and pinned with its real task list. |
+
+**Checked and sound.**
+- **Typed as declared.** A parameter's text is converted to the type the pipeline version declares (`int`, `float`, `bool`, JSON), and refused before the run when it does not fit. Unit-tested against the compiled spec of a real pipeline.
+- **The token goes one way.** Each Kubeflow call sends the connection's token only to that connection's address, with no redirects followed and a 2 MB bound on what is read.
+- **A run that vanished is not left hanging.** A run Kubeflow has lost (404) ends the step; any other error is retried on the next poll.
+- **Measured against a real Kubeflow Pipelines 2.18.0** (kind, single-user), with two pipelines compiled by the KFP SDK 2.18.0. Run with the client itself:
+  - health read the version;
+  - the pipelines and their versions were listed, each version's inputs typed from the compiled spec;
+  - "three" for an integer was refused before any call;
+  - a run with typed values went PENDING → RUNNING → SUCCEEDED in 639 s (mostly image pulls);
+  - a failing pipeline went to FAILED in 161 s;
+  - an unknown parameter sent raw came back in Kubeflow's own words: "parameter(s) provided are not required by pipeline: nope".
+- **The first try failed the machine, not the code.** Kubeflow Pipelines started on kind beside an image build: the Docker VM reached a load of 61 with its memory gone, and Kubeflow's metadata store was left half-created. On a quiet machine, two more traps:
+  - Its liveness probe (18 s) killed the metadata server while it was still creating its tables (about 2 min on this disk).
+  - A rollout ran two of them at once against the empty database, which it refuses.
+
+  The probes were lengthened and the servers started one at a time, on this test cluster only.
+
 ### 2026-11-26 — R539: a menu that listed a model's pages without saying in what order they come
 
 **Why this round.** The user asked that Data science read as logically as the ML consoles people already know. R538 had put every page of a model's life in the menu, but with the registry first and the workspace last. Read top to bottom it said nothing about the path a model takes. Read as someone new to the section, asking where to start and what comes next.

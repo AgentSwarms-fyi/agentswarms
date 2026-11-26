@@ -25,14 +25,22 @@ describe("the API-path promotion", () => {
     expect(promote).toContain(
       'await applyPromotion(model, version as MlVersionRow, "production", userId)',
     );
-    expect(promote).toContain("Promise<{ ok: true } | { ok: false; error: string }>");
+    expect(promote).toContain(
+      "Promise<{ ok: true; pending?: true } | { ok: false; error: string }>",
+    );
     expect(promote).toContain("return res;");
+    // R541: a model with approvers is asked, not promoted, on this path too.
+    expect(promote).toMatch(
+      /if \(promotionGated\(model, "production"\)\) \{[\s\S]{0,300}?await requestPromotion\(model, version as MlVersionRow, userId\);\s*return asked\.ok \? \{ ok: true, pending: true \} : asked;/,
+    );
     expect(promote).not.toContain('.update({ stage: "archived" })');
     expect(promote).not.toContain('.update({ stage: "production" })');
   });
 
   it("is reported by the registration, and the route passes it on", () => {
-    expect(register).toContain("promoted = res.ok;");
+    expect(register).toContain("promoted = res.ok && !res.pending;");
+    expect(register).toContain("promotionPending = res.ok && Boolean(res.pending);");
+    expect(route).toContain("...(done.promotionPending ? { promotion_pending: true } : {}),");
     expect(register).toContain("if (!res.ok) promotionError = res.error;");
     expect(register).toContain("...(promotionError ? { promotionError } : {}),");
     expect(route).toContain("promoted: done.promoted,");
@@ -44,7 +52,8 @@ describe("the API-path promotion", () => {
 
 describe("the schedule's promotion", () => {
   it("reads the promotion's answer and says a failure to the owner and on the schedule", () => {
-    expect(sch).toContain("promoted = res.ok;");
+    expect(sch).toContain("promoted = res.ok && !res.pending;");
+    expect(sch).toContain("pending = res.ok && Boolean(res.pending);");
     expect(sch).not.toContain("promoted = true;");
     expect(sch).toContain("...(promotionError ? { last_error: promotionError } : {}),");
     expect(sch).toContain("trained, but could not be promoted");

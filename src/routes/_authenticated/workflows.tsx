@@ -434,6 +434,7 @@ function WorkflowsPage() {
       models: kind === "sql_models" ? [] : undefined,
       waitSeconds: kind === "wait" ? 60 : undefined,
       http: kind === "http" ? { method: "POST", url: "" } : undefined,
+      kubeflow: kind === "kubeflow_run" ? { integrationId: "", pipelineId: "" } : undefined,
       x: 60 + graph.nodes.length * 40,
       y: 60 + (graph.nodes.length % 5) * 90,
     };
@@ -1513,7 +1514,7 @@ function RunDetail({
         const kind = KIND_STYLE[n.kind as WorkflowNodeKind];
         const KindIcon = kind?.icon;
         const output = n.output as Record<string, unknown> | null;
-        const link = stepRunLink(n.kind as WorkflowNodeKind, n.target_run_id);
+        const link = stepRunLink(n.kind as WorkflowNodeKind, n.target_run_id, output);
         return (
           <div key={n.id} className="rounded-md border px-2 py-1 text-[11px]">
             <div className="flex items-center gap-1.5">
@@ -1538,6 +1539,8 @@ function RunDetail({
             {output && Object.keys(output).length ? (
               <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
                 {Object.entries(output)
+                  // A url that is the link below is not repeated as text.
+                  .filter(([k]) => !(link?.external && k === "url"))
                   .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
                   .join("  ")}
               </p>
@@ -1548,12 +1551,14 @@ function RunDetail({
                 href={link.href}
                 className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
                 title={`Run ${n.target_run_id}`}
+                {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
               >
                 <ExternalLink className="h-2.5 w-2.5" />
                 {link.label}
                 <span className="font-mono opacity-60">
                   {String(n.target_run_id)
                     .replace(/^(retrain|batch_predict):/, "")
+                    .replace(/^kubeflow:[0-9a-f-]{36}:/i, "")
                     .slice(0, 8)}
                 </span>
               </a>

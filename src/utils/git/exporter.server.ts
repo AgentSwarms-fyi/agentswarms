@@ -42,7 +42,7 @@ function gitlabBase(cfg: GitExportConfig): string {
  * so only the always-blocked tier applies (R387).
  */
 function gitlabFetch(url: string, init: RequestInit): Promise<Response> {
-  return safeFetch(url, { ...init, allowPrivate: true });
+  return safeFetch(url, { signal: AbortSignal.timeout(30_000), ...init, allowPrivate: true });
 }
 
 function gitlabProjectId(cfg: GitExportConfig): string {
@@ -245,6 +245,9 @@ export async function gatherExportFiles(
 
 async function ghFetch(url: string, token: string, init?: RequestInit): Promise<Response> {
   return fetch(url, {
+    // A hung API call would hold a save, an update or a CI deploy open
+    // forever; thirty seconds is longer than any of these calls takes.
+    signal: AbortSignal.timeout(30_000),
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -432,4 +435,117 @@ export async function runGitExport(
       "Nothing to export yet — create a dashboard, model or published notebook first",
     );
   return commitFiles(cfg, token, files, `chore(agentswarms): export ${files.length} artifact(s)`);
+}
+
+// ── Reading the repository (R541) ───────────────────────────────────────
+
+const ghRepo = (cfg: GitExportConfig) => cfg.repo.replace(/^\/+|\/+$/g, "");
+const ghPath = (path: string) => path.split("/").map(encodeURIComponent).join("/");
+
+/** The commit the configured branch points at now. */
+export async function branchHead(cfg: GitExportConfig, token: string): Promise<string> {
+  if (cfg.provider === "github") {
+    const res = await ghFetch(
+      `https://api.github.com/repos/${ghRepo(cfg)}/branches/${encodeURIComponent(cfg.branch)}`,
+      token,
+    );
+    if (res.status === 404) {
+      throw new Error(
+        `GitHub: the repository "${ghRepo(cfg)}" or its branch "${cfg.branch}" was not found, or the token cannot read it`,
+      );
+    }
+    if (!res.ok) throw new Error(await ghError(res));
+    const j = (await res.json()) as { commit?: { sha?: string } };
+    if (!j.commit?.sha) throw new Error("GitHub returned no commit for the branch");
+    return j.commit.sha;
+  }
+  const base = gitlabBase(cfg);
+  const res = await gitlabFetch(
+    `${base}/api/v4/projects/${gitlabProjectId(cfg)}/repository/branches/${encodeURIComponent(cfg.branch)}`,
+    { headers: { "PRIVATE-TOKEN": token } },
+  );
+  if (res.status === 404) {
+    throw new Error(
+      `GitLab: the project "${cfg.repo}" or its branch "${cfg.branch}" was not found, or the token cannot read it`,
+    );
+  }
+  if (!res.ok) throw new Error(`GitLab ${res.status}: ${res.statusText}`);
+  const j = (await res.json()) as { commit?: { id?: string } };
+  if (!j.commit?.id) throw new Error("GitLab returned no commit for the branch");
+  return j.commit.id;
+}
+
+/** The files directly in one folder at a ref; an absent folder is empty. */
+export async function listFolder(
+  cfg: GitExportConfig,
+  token: string,
+  folder: string,
+  ref: string,
+): Promise<{ name: string; path: string }[]> {
+  if (cfg.provider === "github") {
+    const res = await ghFetch(
+      `https://api.github.com/repos/${ghRepo(cfg)}/contents/${ghPath(folder)}?ref=${encodeURIComponent(ref)}`,
+      token,
+    );
+    if (res.status === 404) return [];
+    if (!res.ok) throw new Error(await ghError(res));
+    const j = (await res.json()) as unknown;
+    if (!Array.isArray(j)) return [];
+    return (j as { type?: string; name?: string; path?: string }[])
+      .filter((e) => e.type === "file" && e.name && e.path)
+      .map((e) => ({ name: String(e.name), path: String(e.path) }));
+  }
+  const base = gitlabBase(cfg);
+  const res = await gitlabFetch(
+    `${base}/api/v4/projects/${gitlabProjectId(cfg)}/repository/tree?path=${encodeURIComponent(
+      folder,
+    )}&ref=${encodeURIComponent(ref)}&per_page=100`,
+    { headers: { "PRIVATE-TOKEN": token } },
+  );
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`GitLab ${res.status}: ${res.statusText}`);
+  const j = (await res.json()) as unknown;
+  if (!Array.isArray(j)) return [];
+  return (j as { type?: string; name?: string; path?: string }[])
+    .filter((e) => e.type === "blob" && e.name && e.path)
+    .map((e) => ({ name: String(e.name), path: String(e.path) }));
+}
+
+/**
+ * Whether a commit is on the configured branch: the branch's head, or
+ * somewhere in its history. A CI deploy names a commit; only one that reached
+ * the branch the team reviews into is deployed, so a token that leaked into a
+ * fork's pipeline cannot ship an unreviewed branch.
+ */
+export async function commitOnBranch(
+  cfg: GitExportConfig,
+  token: string,
+  sha: string,
+): Promise<boolean> {
+  if (cfg.provider === "github") {
+    const res = await ghFetch(
+      `https://api.github.com/repos/${ghRepo(cfg)}/compare/${encodeURIComponent(
+        cfg.branch,
+      )}...${encodeURIComponent(sha)}`,
+      token,
+    );
+    if (res.status === 404) return false;
+    if (!res.ok) throw new Error(await ghError(res));
+    const j = (await res.json()) as { status?: string };
+    // "behind": the commit is an ancestor of the branch head.
+    return j.status === "identical" || j.status === "behind";
+  }
+  const base = gitlabBase(cfg);
+  const res = await gitlabFetch(
+    `${base}/api/v4/projects/${gitlabProjectId(cfg)}/repository/commits/${encodeURIComponent(
+      sha,
+    )}/refs?type=branch&per_page=100`,
+    { headers: { "PRIVATE-TOKEN": token } },
+  );
+  if (res.status === 404) return false;
+  if (!res.ok) throw new Error(`GitLab ${res.status}: ${res.statusText}`);
+  const j = (await res.json()) as unknown;
+  return (
+    Array.isArray(j) && (j as { type?: string; name?: string }[]).some((r) => r.name === cfg.branch)
+  );
 }

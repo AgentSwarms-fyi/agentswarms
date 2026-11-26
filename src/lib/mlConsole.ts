@@ -124,6 +124,8 @@ export type AttentionItem = {
   detail: string;
   at: string | null;
   tab: ModelTab;
+  /** An ML pipeline's item (R540) opens the pipeline, not a model. */
+  pipeline_id?: string;
 };
 
 /**
@@ -167,6 +169,8 @@ export function lastRunOutcome(status: string | null | undefined): string {
       return "promoted a better version";
     case "kept":
       return "kept the production version";
+    case "awaiting_approval":
+      return "trained a better version, waiting for approval";
     case null:
     case undefined:
     case "":
@@ -236,6 +240,14 @@ export function attentionItems(input: {
   schedules: ScheduleLite[];
   /** model id → the health sentences modelHealthFor wrote (drift, decay). */
   health: Map<string, string[]>;
+  /** ML pipeline runs that failed (R540), already narrowed to the window. */
+  failedPipelineRuns?: {
+    workflow_id: string;
+    name: string;
+    error: string | null;
+    started_at: string | null;
+    finished_at: string | null;
+  }[];
   now?: number;
 }): AttentionItem[] {
   const name = (id: string) => input.names.get(id) ?? "A model";
@@ -249,6 +261,18 @@ export function attentionItems(input: {
       detail: errorLead(j.error),
       at: j.finished_at ?? j.created_at,
       tab: "jobs",
+    });
+  }
+  for (const r of input.failedPipelineRuns ?? []) {
+    out.push({
+      severity: "bad",
+      model_id: "",
+      model_name: r.name,
+      what: "ML pipeline run failed",
+      detail: errorLead(r.error),
+      at: r.finished_at ?? r.started_at,
+      tab: "overview",
+      pipeline_id: r.workflow_id,
     });
   }
   for (const p of input.failedPredictions) {

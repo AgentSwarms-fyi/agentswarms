@@ -57,6 +57,8 @@ export const Route = createFileRoute("/api/ml/models/register")({
             version_id: done.versionId,
             version: done.version,
             promoted: done.promoted,
+            // The model's production needs an approver: the request is raised.
+            ...(done.promotionPending ? { promotion_pending: true } : {}),
             ...(done.promotionError ? { promotion_error: done.promotionError } : {}),
           },
           201,

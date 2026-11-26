@@ -321,6 +321,12 @@ describe("the destination-naming sinks", () => {
     expect(sync).toMatch(/sendTo: integrationHosts\("mlflow"\)/);
   });
 
+  it("the Kubeflow step: the token toward the connection's Pipelines address", () => {
+    const k = rd("src/utils/ml/kubeflow.server.ts");
+    expect(k).toMatch(/resolveIntegrationConfig\(\s*userId,\s*"kubeflow",/);
+    expect(k).toMatch(/sendTo: integrationHosts\("kubeflow"\)/);
+  });
+
   it("only these files name a destination: a new one is a decision, not an accident", () => {
     const out = execFileSync(
       "git",
@@ -350,6 +356,8 @@ describe("the destination-naming sinks", () => {
         "src/utils/lakehouse/iceberg.server.ts",
         // R534: the MLflow token or password, toward the tracking URL only.
         "src/utils/ml/mlflowTracking.server.ts",
+        // R540: the Kubeflow token, toward the Pipelines address only.
+        "src/utils/ml/kubeflow.server.ts",
         "src/utils/providers/credentials.server.ts",
         "src/utils/providers/integrationConfig.server.ts",
         "src/utils/providers/integrationHosts.ts",

@@ -3472,6 +3472,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ml.train.proposed",
       "ml.version.promote",
       "ml.version.promote.requested",
+      "promote",
       "start_run",
       "start_run()"
     ],
@@ -6230,24 +6231,32 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Workflows",
     "description": "One graph over the pipelines, model builds, retrains, notebooks and swarms you already have — with the branching, retries, approvals and API trigger an orchestrator is expected to have.",
     "terms": [
+      "200",
+      "202",
       "404",
       "409",
+      "422",
       "WORKFLOW_TRIGGER_PER_MIN",
       "all_done",
       "api",
+      "changes",
+      "commit",
       "cron",
       "cron_expr",
+      "deployed",
       "false",
       "one_success",
       "partial",
+      "ref",
       "schedule",
       "trigger",
-      "true"
+      "true",
+      "workflow.repo.deploy"
     ],
     "headings": [
       {
         "id": "steps",
-        "text": "The fifteen kinds of step",
+        "text": "The sixteen kinds of step",
         "level": 2
       },
       {
@@ -6304,6 +6313,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "api",
         "text": "Starting a run from outside",
         "level": 2
+      },
+      {
+        "id": "deploy-from-repo",
+        "text": "Deploying from your repository",
+        "level": 3
       },
       {
         "id": "limits",

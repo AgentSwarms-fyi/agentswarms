@@ -694,3 +694,62 @@ export async function testGatewayCore(cfg: {
   }
   return fmtFail("Gateway", r, await extractUpstreamError(r));
 }
+
+/**
+ * Reach a Kubeflow Pipelines server (R540) the way a workflow step will: its
+ * health, then its pipelines list, with the token, so a token its sign-in
+ * refuses fails here rather than at the first run.
+ */
+export async function testKubeflowCore(cfg: {
+  api_url: string;
+  auth?: string;
+  token?: string;
+  namespace?: string;
+}): Promise<TestResult & { version?: string | null; pipelines?: number; multiUser?: boolean }> {
+  const { kubeflowBase, kubeflowHealth, kubeflowNamespace, kubeflowPipelines, KubeflowError } =
+    await import("@/utils/ml/kubeflowClient.server");
+  const base = kubeflowBase(cfg.api_url);
+  if (!base) {
+    return {
+      ok: false,
+      detail:
+        "Enter the address the Pipelines UI opens at (http or https), with no username or password in it.",
+    };
+  }
+  if (cfg.namespace?.trim() && !kubeflowNamespace(cfg.namespace)) {
+    return {
+      ok: false,
+      detail: "The namespace is a Kubernetes name: lowercase letters, digits and dashes.",
+    };
+  }
+  const conn = { ...cfg, token: clean(cfg.token), api_url: base };
+  let health: { version: string | null; multiUser: boolean };
+  let count: number;
+  try {
+    health = await kubeflowHealth(conn);
+    if (health.multiUser && !kubeflowNamespace(cfg.namespace)) {
+      return {
+        ok: false,
+        detail: `Reached Kubeflow Pipelines${health.version ? ` ${health.version}` : ""} at ${base}. It is multi-user, so name the profile namespace your pipelines are in.`,
+      };
+    }
+    count = (await kubeflowPipelines(conn)).length;
+  } catch (e) {
+    const err = e as InstanceType<typeof KubeflowError>;
+    return {
+      ok: false,
+      status: err.status,
+      detail:
+        err.status === 404
+          ? `${base} does not answer the Pipelines API. Use the address the Pipelines UI opens at (on a full Kubeflow it ends in /pipeline).`
+          : err.message,
+    };
+  }
+  return {
+    ok: true,
+    version: health.version,
+    pipelines: count,
+    multiUser: health.multiUser,
+    detail: `Reached Kubeflow Pipelines${health.version ? ` ${health.version}` : ""} at ${base}: ${count} pipeline${count === 1 ? "" : "s"}${count >= 200 ? " or more" : ""} a workflow can run.`,
+  };
+}

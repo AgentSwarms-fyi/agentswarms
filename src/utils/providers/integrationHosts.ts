@@ -57,6 +57,8 @@ export function integrationHosts(
         return [FIRECRAWL_API];
       case "mlflow":
         return str(cfg.tracking_uri) ? [str(cfg.tracking_uri)] : undefined;
+      case "kubeflow":
+        return str(cfg.api_url) ? [str(cfg.api_url)] : undefined;
       default:
         return undefined;
     }

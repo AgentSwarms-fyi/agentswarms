@@ -1,10 +1,10 @@
 // Git-based versioning UI: configure a GitHub/GitLab repo and export BI
 // dashboards + semantic models as sanitized JSON in one commit. Admin-gated by
-// the caller. The access token is one of the user's secrets, picked by name
-// (R494); a token typed in before is stored encrypted and never read back to
-// the client (it shows as a key saved in the field until a secret is picked).
-import { useEffect, useState } from "react";
+// the caller. The settings are the one repository connection, also under
+// Integrations → Git repository (R541); the form is shared with that tab.
+import { useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { GitBranch, Loader2, UploadCloud } from "lucide-react";
 
@@ -17,117 +17,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
-import { useTokenRef } from "@/hooks/use-token-ref";
-import { SecretSelect } from "@/components/secrets/SecretSelect";
-import { parseSecretRef, secretRef } from "@/lib/secretRefs";
-import { gitExportNow, gitGetConfig, gitSaveConfig } from "@/utils/gitExport.functions";
+import { useGitRepositorySettings } from "@/components/git/GitRepositoryFields";
+import { gitExportNow } from "@/utils/gitExport.functions";
 
 export function BiGitSyncDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
-  const { tokenRef, signedIn } = useTokenRef(token);
-  const getConfig = useServerFn(gitGetConfig);
-  const saveConfig = useServerFn(gitSaveConfig);
   const exportNow = useServerFn(gitExportNow);
-
-  const [provider, setProvider] = useState<"github" | "gitlab">("github");
-  const [repo, setRepo] = useState("");
-  const [branch, setBranch] = useState("main");
-  const [basePath, setBasePath] = useState("agentswarms");
-  const [host, setHost] = useState("");
-  const [pat, setPat] = useState("");
-  const [hasToken, setHasToken] = useState(false);
-  // The secret the saved token names, when it names one.
-  const [tokenSecret, setTokenSecret] = useState<string | null>(null);
-  const [last, setLast] = useState<{
-    at: string | null;
-    status: string | null;
-    error: string | null;
-  }>({
-    at: null,
-    status: null,
-    error: null,
-  });
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const git = useGitRepositorySettings(token, open);
+  const { last, setLast } = git;
   const [exporting, setExporting] = useState(false);
-
-  // The saved settings load when the dialog opens, not when the session
-  // refreshes (R125): that put the saved repo, branch and folder back over
-  // unsaved edits, and "Export now" saves first, so it exported to those.
-  useEffect(() => {
-    const token = tokenRef.current;
-    if (!open || !token) return;
-    setLoading(true);
-    getConfig({ data: { access_token: token } })
-      .then((res) => {
-        if (res.ok && res.config) {
-          const c = res.config;
-          setProvider(c.provider === "gitlab" ? "gitlab" : "github");
-          setRepo(c.repo);
-          setBranch(c.branch);
-          setBasePath(c.base_path);
-          setHost(c.host ?? "");
-          setHasToken(c.has_token);
-          setTokenSecret(c.token_secret);
-          setLast({ at: c.last_export_at, status: c.last_status, error: c.last_error });
-        }
-      })
-      .catch((e) => toast.error((e as Error).message))
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, signedIn, getConfig]);
-
-  async function save(): Promise<boolean> {
-    setSaving(true);
-    try {
-      const res = await saveConfig({
-        data: {
-          access_token: token,
-          provider,
-          repo: repo.trim(),
-          branch: branch.trim(),
-          base_path: basePath.trim() || "agentswarms",
-          host: provider === "gitlab" ? host.trim() || undefined : undefined,
-          // Only send the token when one was picked (keeps the stored one otherwise).
-          token: pat ? pat : undefined,
-        },
-      });
-      if (!res.ok) throw new Error(res.error);
-      if (pat) {
-        setHasToken(true);
-        setTokenSecret(parseSecretRef(pat));
-        setPat("");
-      }
-      toast.success("Git settings saved");
-      return true;
-    } catch (e) {
-      toast.error((e as Error).message);
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  }
 
   async function runExport() {
     // Persist any edits first so the export uses the latest settings.
-    if (!(await save())) return;
+    if (!(await git.save())) return;
     setExporting(true);
     try {
       const res = await exportNow({ data: { access_token: token } });
       if (!res.ok) throw new Error(res.error);
       setLast({ at: new Date().toISOString(), status: "ok", error: null });
-      toast.success(`Exported ${res.files} file(s) to ${provider}`, {
+      toast.success(`Exported ${res.files} file(s) to ${git.provider}`, {
         action: { label: "View commit", onClick: () => window.open(res.commit_url, "_blank") },
       });
     } catch (e) {
@@ -138,8 +48,6 @@ export function BiGitSyncDialog({ open, onClose }: { open: boolean; onClose: () 
     }
   }
 
-  const canSave = repo.trim() !== "" && branch.trim() !== "";
-
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
@@ -149,89 +57,21 @@ export function BiGitSyncDialog({ open, onClose }: { open: boolean; onClose: () 
           </DialogTitle>
           <DialogDescription>
             Export your BI dashboards and semantic models as JSON to a Git repo in one commit. Data
-            snapshots are stripped — definitions only. The token is stored encrypted.
+            snapshots are stripped — definitions only. The same repository holds ML pipelines;{" "}
+            <Link to="/integrations" search={{ tab: "git" }} className="underline">
+              Integrations → Git repository
+            </Link>{" "}
+            shows everything in it.
           </DialogDescription>
         </DialogHeader>
 
-        {loading ? (
+        {git.loading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Provider</Label>
-                <Select
-                  value={provider}
-                  onValueChange={(v) => setProvider(v as "github" | "gitlab")}
-                >
-                  <SelectTrigger className="h-9 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="github">GitHub</SelectItem>
-                    <SelectItem value="gitlab">GitLab</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Branch</Label>
-                <Input
-                  value={branch}
-                  onChange={(e) => setBranch(e.target.value)}
-                  className="h-9 text-sm"
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">
-                {provider === "github"
-                  ? "Repository (owner/name)"
-                  : "Project (group/project or id)"}
-              </Label>
-              <Input
-                value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-                className="h-9 font-mono text-xs"
-                placeholder={provider === "github" ? "acme/analytics" : "acme/analytics"}
-              />
-            </div>
-            {provider === "gitlab" && (
-              <div className="space-y-1.5">
-                <Label className="text-xs">Host (self-hosted, optional)</Label>
-                <Input
-                  value={host}
-                  onChange={(e) => setHost(e.target.value)}
-                  className="h-9 font-mono text-xs"
-                  placeholder="https://gitlab.example.com"
-                />
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label className="text-xs">Folder in repo</Label>
-              <Input
-                value={basePath}
-                onChange={(e) => setBasePath(e.target.value)}
-                className="h-9 text-sm"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Access token</Label>
-              <SecretSelect
-                aria-label="Access token"
-                value={pat || (tokenSecret ? secretRef(tokenSecret) : "")}
-                onChange={setPat}
-                storedKey={hasToken && !tokenSecret}
-                destination={
-                  provider === "github"
-                    ? "https://api.github.com"
-                    : host.trim() || "https://gitlab.com"
-                }
-                suggestedName={provider === "github" ? "GITHUB_TOKEN" : "GITLAB_TOKEN"}
-                purpose="A personal access token that can write to the repository."
-              />
-            </div>
+            {git.fields}
             {last.at && (
               <p className="text-[11px] text-muted-foreground">
                 Last export: {last.status === "ok" ? "succeeded" : `failed — ${last.error}`}
@@ -244,12 +84,16 @@ export function BiGitSyncDialog({ open, onClose }: { open: boolean; onClose: () 
           <Button variant="ghost" onClick={onClose}>
             Close
           </Button>
-          <Button variant="outline" onClick={() => void save()} disabled={!canSave || saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+          <Button
+            variant="outline"
+            onClick={() => void git.save()}
+            disabled={!git.canSave || git.saving}
+          >
+            {git.saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
           </Button>
           <Button
             onClick={() => void runExport()}
-            disabled={!canSave || exporting || saving}
+            disabled={!git.canSave || exporting || git.saving}
             className="gap-1.5"
           >
             {exporting ? (

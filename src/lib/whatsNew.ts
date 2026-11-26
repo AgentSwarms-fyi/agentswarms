@@ -23,6 +23,22 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "ml-pipelines-in-git",
+    date: "2026-11-26",
+    title: "ML pipelines in your Git repository",
+    body: "Connect GitHub or GitLab under Integrations → Git repository, then save each ML pipeline there, review changes in pull requests, update from the repo and let CI deploy a reviewed commit.",
+    link: { to: "/integrations", search: { tab: "git" } },
+    cta: "Connect a repository",
+  },
+  {
+    id: "ml-pipelines",
+    date: "2026-11-26",
+    title: "ML pipelines, and your Kubeflow",
+    body: "Data science now lists ML pipelines: retrain, check, promote and score on a schedule. Connect Kubeflow Pipelines under Integrations to run your team's pipelines as steps.",
+    link: { to: "/ml/pipelines" },
+    cta: "Open ML pipelines",
+  },
+  {
     id: "data-science-menu",
     date: "2026-11-25",
     title: "Model serving and ML operations",

@@ -16,6 +16,16 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261204000000`** (R541) to keep ML pipelines in your
+  repository: it adds the table that remembers which file a pipeline is kept
+  in. Until then the ML pipelines page lists pipelines as before and says the
+  repository could not be read; Integrations → Git repository, BI's Git sync
+  and notebook versions need nothing new.
+- **Apply migration `20261203000000`** (R540) to connect a Kubeflow Pipelines
+  server and add Kubeflow steps to ML pipelines: it adds the `kubeflow`
+  connection type and the `kubeflow_run` step kind. Until then saving a
+  Kubeflow connection says which migration is missing; ML pipelines without a
+  Kubeflow step need nothing new.
 - **Apply migration `20261202000000`** (R534) to connect an MLflow server: it
   adds the `mlflow` connection type and the `tracking` columns that record
   what was sent. Until then Integrations → MLflow says the migration is
@@ -93,6 +103,7 @@ development branch and may be ahead of the latest tag.
   Model serving has a **Deploy a model** button. It lists the production
   versions with no endpoint and the stopped ones, and opens the one picked
   where it is deployed.
+
 - **A calmer look** (R517). Every page opens the same way: where you are, a
   title that matches its name in the menu, one sentence on what the page is
   for, and its own buttons on the right. Titles were in three sizes and two
@@ -294,6 +305,49 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **ML pipelines in your own GitHub or GitLab repository** (R541).
+  - **Integrations → Git repository** connects the repository once: provider,
+    repository, branch, folder and a token from Secrets, with **Save and
+    check**. It lists what lives there. Before, the settings were reachable
+    only from BI's admin menu.
+  - Each pipeline's **Repository** menu on ML pipelines:
+    - **Save to repo** commits it as `ml/pipelines/<name>.json`, with each of
+      its models' configuration in `ml/models/`.
+    - **Update from repo** previews what would change, then applies the
+      commit it previewed.
+    - **Deploy from CI** gives a GitHub Actions or GitLab CI job and creates
+      the trigger token.
+  - **Import from repo** makes a pipeline from a file, paused.
+  - Each pipeline names its file, its last sync and its commit, and shows
+    **Changed here since** after an edit on the platform.
+  - **Targets in another workspace.** A file names what each step points at
+    as well as its id, so another workspace finds its own by name.
+  - **The same rules as Save.** Update, import and a CI deploy all write
+    through the editor's Save path.
+  - **What is never written:** a key typed into a header (refused until it
+    names a secret), data, and approvers' identities.
+  - **`POST /api/workflows/run`** takes `sync: true` with a `ref`, and
+    deploys only a commit on the connected branch. `run: false` deploys
+    without running.
+- **ML pipelines, and Kubeflow Pipelines** (R540). **Data science → ML
+  pipelines** (under Deploy) lists the workflows that train, score or run a
+  Kubeflow pipeline: their steps in order, the models they touch, how they
+  start, their last run and recent runs, with **Run now**.
+  - **New ML pipeline** creates one that retrains and then scores, opened in
+    the workflow editor to pick each step's schedule. One orchestrator: an ML
+    pipeline is a workflow, with its schedule, retries, approvals and history.
+  - A Kubeflow Pipelines server is a connection under Integrations → Kubeflow
+    (its address, a bearer token from Secrets, and a namespace on a multi-user
+    Kubeflow), tested against its health and pipeline list.
+  - A **Kubeflow pipeline** step runs one of its pipelines, a chosen version or
+    the newest. Each input the version declares gets a value, typed the way
+    the pipeline declared it, and `{{params.x}}` works in the values. The step
+    waits for the run, names the step that failed when it fails (Kubeflow
+    2.18 gives no reason over its API; the step's log has it), and the run
+    view opens the run in Kubeflow. Measured against a real Kubeflow
+    Pipelines 2.18.0.
+  - ML operations lists pipeline runs beside jobs, and a pipeline run that
+    failed this week under Needs a look.
 - **Model serving and ML operations, and a full Data science menu** (R538).
   Data science lists ML Models, Experiments, Feature views, Model serving,
   ML operations and the Developer workspace. Experiments and Feature views
@@ -757,6 +811,13 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **A gated model could still be promoted without its approver** (R541).
+  With approvers named, **Promote** asked them, but a scheduled retrain set to
+  promote when better and the registration API's `promote` went straight to
+  production, so the gate guarded only the button. Both now raise the request:
+  the schedule's last run reads "awaiting approval", the API answers
+  `promotion_pending: true`, and production keeps serving until someone who did
+  not ask agrees.
 - **A failed model job showed a traceback instead of the reason** (R536).
   Training, prediction and import failures raised in the sandbox were stored
   as the full Python traceback, and the Jobs table shows an error's first 200

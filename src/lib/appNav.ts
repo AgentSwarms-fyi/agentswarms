@@ -41,6 +41,7 @@ import {
   FileSpreadsheet,
   FlaskConical,
   Gauge,
+  GitMerge,
   GraduationCap,
   HeartPulse,
   History,
@@ -217,6 +218,15 @@ export const NAV_GROUPS: NavGroup[] = [
       { title: "Feature views", url: "/ml/features", icon: TableProperties, stage: "Develop" },
       { title: "Experiments", url: "/ml/experiments", icon: TestTubes, stage: "Develop" },
       { title: "ML Models", url: "/ml", icon: Brain, stage: "Deploy" },
+      // A model's work automated end to end (R540): the workflows that train,
+      // score or run a Kubeflow pipeline, seen from the model side.
+      {
+        title: "ML pipelines",
+        url: "/ml/pipelines",
+        icon: GitMerge,
+        formerly: "MLOps pipelines",
+        stage: "Deploy",
+      },
       { title: "Model serving", url: "/ml/serving", icon: Rocket, stage: "Deploy" },
       {
         title: "ML operations",
