@@ -736,12 +736,15 @@ export function NodeInspector({
                         }
                       />
                     </SelectTrigger>
-                    <SelectContent>
+                    {/* A long agent name is cut, with the whole name on hover. The
+                        list used to be as wide as its longest name, past the
+                        inspector and off the screen. */}
+                    <SelectContent className="max-w-80">
                       {agentLibrary.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
+                        <SelectItem key={a.id} value={a.id} title={a.name}>
                           <span className="flex items-center gap-2">
-                            <Library className="h-3 w-3 text-primary" />
-                            <span className="truncate">{a.name}</span>
+                            <Library className="h-3 w-3 shrink-0 text-primary" />
+                            <span className="block max-w-60 truncate">{a.name}</span>
                           </span>
                         </SelectItem>
                       ))}
