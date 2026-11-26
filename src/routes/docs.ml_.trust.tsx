@@ -82,6 +82,11 @@ function MlTrustPage() {
           The card is the owner&apos;s only: it sums every caller&apos;s requests. Recording the
           hourly verdict needs migration <C>20261207000000</C>.
         </li>
+        <li>
+          A drifted verdict from the last two days is part of the model&apos;s health: it is listed
+          under ML operations → <strong>Needs a look</strong> and travels with the model to agents,
+          the AI Analyst and the Playground, as a headline and a PSI without the features.
+        </li>
       </UL>
 
       <H2 id="explain">Why this row got this answer</H2>

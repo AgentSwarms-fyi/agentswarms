@@ -319,6 +319,11 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Live traffic in a model's health** (R546). A drifted live-traffic verdict
+  from the last two days is listed under ML operations → Needs a look (opening
+  the Predictions tab) and travels with the model to agents, the AI Analyst
+  and the Playground, beside batch drift and accuracy. Only the headline and
+  its PSI travel; which features moved stays on the owner's card.
 - **Drift on live traffic** (R545).
   - **Online requests are measured.** A warm endpoint, the API and the
     playground answer a few rows at a time, so their drift was never measured.

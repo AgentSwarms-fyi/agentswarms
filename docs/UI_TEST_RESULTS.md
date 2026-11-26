@@ -15,6 +15,14 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-26 — R546: live traffic in a model's health
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, with migration 20261207000000 applied. No model on this account has 200 online requests in a day, so no live-traffic verdict exists, and none was written to make one: the sentence, its place in the list and its tab were driven in the tests (`mlModelHealth.test.ts`, three mutations caught).
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| ML operations | the page, now reading the hourly check's table for every production version | loads as before; **Needs a look** lists the same five items (none from live traffic, rightly) |
+
 ## 2026-11-26 — R545: drift on live traffic (and R544 after its migration)
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab, after the user applied migrations 20261203000000 to 20261207000000 (checked with a read-only query first).

@@ -109,6 +109,20 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-26 — R546: the hourly live-traffic verdict was recorded but not said
+
+**Why this round.** R545 measured live traffic hourly and told the owner. But a model's health, the sentence that travels with it to ML operations, agents, the AI Analyst and the Playground, read only batch drift and accuracy. An agent scoring with a model whose live traffic had drifted that morning said nothing about it.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A drifted live-traffic verdict was not part of a model's health | S3 | **Found by the round's question.** It now is, beside batch drift and accuracy: an alert past the threshold, or "live traffic steady" when nothing else was measured. In ML operations it opens the Predictions tab, where the card is. |
+| An old verdict would have stood for traffic that stopped | S3 | **Found in design.** The hourly check stops writing when requests stop, so its last row would stay. Only verdicts from the last two days count. |
+| The health sentence travels to people the model is shared with | S3 | **Found in review.** Only the headline goes, as batch drift's does: that the last day drifted, and the PSI. Which features moved stays on the owner's card, because the window sums every caller's requests. |
+
+**Checked and sound.**
+- **Before migration 20261207000000** the read errors and health is what it was (the read is ignored on error).
+- **Mutation-checked:** dropping the reading from the sentence, dropping the two-day window, and routing the alert to the Accuracy tab are each caught.
+
 ### 2026-11-26 — R545: a model served online was never checked for drift
 
 **Why this round.** R544 let a drift alert start a pipeline. But drift was measured only on a batch run, or on a direct prediction of ten rows or more. A warm endpoint, the API and the playground answer a few rows at a time, so the traffic a served model actually sees was never measured, and could never alert. Read as an operator whose model answers a web request per customer.

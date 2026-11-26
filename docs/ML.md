@@ -628,7 +628,10 @@ carry it; the Playground's model list marks an alert. "Drift: the rows scored
 on 2026-09-14 differ from the training data (PSI 3.291 against the alert
 threshold 0.25); consider retraining before trusting new predictions." Below
 the threshold and stable, it still says what was measured and when — "no
-alert" and "never measured" are different facts.
+alert" and "never measured" are different facts. A third reading joined them
+in R546: the hourly check on [live traffic](#live-traffic), from the last two
+days. Only its headline travels: that the last day of online requests drifted,
+and its PSI. Which features moved stays on the owner's card.
 
 Until this picker existed, enabling the tool showed an **API key** field: a
 password box, for a tool that needs no key, with "paste here" in it. It
@@ -892,6 +895,10 @@ hours of them summed and measured (R545).
   owner's work.
 - **The card is the owner's.** It sums every caller's requests, so a person
   the model is shared with does not see it.
+- **It is part of the model's health** (R546). A drifted verdict from the last
+  two days is listed under ML operations → **Needs a look**, which opens the
+  model's Predictions tab, and travels with the model to agents, the AI
+  Analyst and the Playground: the headline and its PSI, not the features.
 
 The hourly check records its verdict in `ml_traffic_checks`, which needs
 migration `20261207000000`. Without it the card still measures on demand; the

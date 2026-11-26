@@ -2,6 +2,7 @@
 // serving (every endpoint that answers requests) and ML operations (what is
 // running, what failed, what is due). Worked out from plain rows, so every
 // sentence a page shows is held by a test.
+import { LIVE_TRAFFIC_ALERT } from "@/lib/mlHealth";
 
 export type EndpointStatus = "starting" | "ready" | "failed" | "stopped";
 export type CandidateMode = "off" | "shadow" | "canary";
@@ -238,7 +239,7 @@ export function attentionItems(input: {
   failedPredictions: PredictionLite[];
   endpoints: EndpointView[];
   schedules: ScheduleLite[];
-  /** model id → the health sentences modelHealthFor wrote (drift, decay). */
+  /** model id → the health sentences modelHealthFor wrote (drift, decay, live traffic). */
   health: Map<string, string[]>;
   /** ML pipeline runs that failed (R540), already narrowed to the window. */
   failedPipelineRuns?: {
@@ -320,7 +321,8 @@ export function attentionItems(input: {
         what: "Production version needs a look",
         detail: a,
         at: null,
-        tab: "accuracy",
+        // Live traffic is read on the Predictions tab, beside the runs (R546).
+        tab: a.startsWith(LIVE_TRAFFIC_ALERT) ? "predictions" : "accuracy",
       });
     }
   }

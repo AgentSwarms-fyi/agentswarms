@@ -11,7 +11,8 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { describeModelHealth, healthLine } from "@/lib/mlHealth";
+import { LIVE_TRAFFIC_ALERT, describeModelHealth, healthLine } from "@/lib/mlHealth";
+import { attentionItems } from "@/lib/mlConsole";
 import { docsFamily } from "./docsPages";
 
 const rd = (p: string) => readFileSync(p, "utf8");
@@ -98,7 +99,14 @@ describe("describeModelHealth", () => {
 
   it("is honest about nothing having been measured", () => {
     const h = describeModelHealth(null, null);
-    expect(h).toEqual({ drift: null, evaluation: null, alerts: [], summary: null });
+    // R546 added the live-traffic reading, null like the other two.
+    expect(h).toEqual({
+      drift: null,
+      evaluation: null,
+      traffic: null,
+      alerts: [],
+      summary: null,
+    });
     expect(healthLine(h)).toBeNull();
     expect(healthLine(null)).toBeNull();
   });
@@ -178,5 +186,76 @@ describe("the sentence travels with the model", () => {
       expect(d).toMatch(/health/);
       expect(d).toMatch(/open drift alert/);
     }
+  });
+});
+
+// ── Live traffic (R546) ─────────────────────────────────────────────────────
+
+describe("live traffic in a model's health", () => {
+  const trafficHigh = { score: 0.4127, threshold: 0.25, at: "2026-11-26T13:00:00Z" };
+  const trafficLow = { score: 0.03, threshold: 0.25, at: "2026-11-26T13:00:00Z" };
+
+  it("raises an alert past the threshold, with the headline only", () => {
+    const h = describeModelHealth(null, null, trafficHigh);
+    expect(h.alerts).toEqual([
+      "Drift in live traffic: the last day of online requests, checked on 2026-11-26, differs from the training data (PSI 0.413 against the alert threshold 0.25); consider retraining before trusting new predictions.",
+    ]);
+    expect(h.summary).toBe("open live-traffic drift alert (PSI 0.413 on 2026-11-26)");
+    // Which features moved stays on the owner's card: the reading has none.
+    expect(Object.keys(trafficHigh)).toEqual(["score", "threshold", "at"]);
+    expect(h.alerts[0].startsWith(LIVE_TRAFFIC_ALERT)).toBe(true);
+  });
+
+  it("says steady traffic when nothing else was measured, and stays quiet behind other readings", () => {
+    expect(describeModelHealth(null, null, trafficLow)).toMatchObject({
+      alerts: [],
+      summary: "live traffic steady on 2026-11-26 (PSI 0.03)",
+    });
+    expect(describeModelHealth(driftLow, null, trafficLow).summary).toBe(
+      "no drift on 2026-09-14 (PSI 0.04)",
+    );
+  });
+
+  it("stands beside batch drift and decay, not instead of them", () => {
+    const h = describeModelHealth(driftHigh, degraded, trafficHigh);
+    expect(h.alerts.map((a) => a.split(":")[0])).toEqual([
+      "Drift",
+      "Decay",
+      "Drift in live traffic",
+    ]);
+    expect(h.summary).toContain("; open live-traffic drift alert");
+  });
+
+  it("is marked in the Playground's list like any open alert", () => {
+    const summary = describeModelHealth(null, null, trafficHigh).summary as string;
+    // The Playground's own test for "this needs a ⚠".
+    expect(/alert|degraded|suspiciously/.test(summary)).toBe(true);
+  });
+
+  it("sends a live-traffic alert in ML operations to the Predictions tab, where the card is", () => {
+    const traffic = describeModelHealth(null, null, trafficHigh).alerts[0];
+    const decay = describeModelHealth(null, degraded).alerts[0];
+    const items = attentionItems({
+      names: new Map([["m1", "churn"]]),
+      failedJobs: [],
+      failedPredictions: [],
+      endpoints: [],
+      schedules: [],
+      health: new Map([["m1", [traffic, decay]]]),
+    });
+    expect(items.map((i) => i.tab)).toEqual(["predictions", "accuracy"]);
+  });
+
+  it("is read from the hourly check's table, only while it is recent, and never fails health", () => {
+    const code = codeOnly(rd("src/utils/ml/health.server.ts"));
+    expect(code).toMatch(
+      /\.from\("ml_traffic_checks"\)\s*\.select\("version_id, score, checked_at"\)\s*\.in\("version_id", versionIds\)\s*\.gte\("checked_at", recent\)/,
+    );
+    expect(code).toContain("const recent = new Date(Date.now() - 48 * 3_600_000).toISOString();");
+    expect(code).toContain("for (const c of checks.error ? [] : (checks.data ?? [])) {");
+    // And the reading reaches the sentence.
+    expect(code).toMatch(
+      /describeModelHealth\(\s*drift\.get\(v\) \?\? null,\s*evaluation\.get\(v\) \?\? null,\s*traffic\.get\(v\) \?\? null,?\s*\)/,
+    );
   });
 });

@@ -12,6 +12,7 @@ import {
   type DriftReading,
   type EvaluationReading,
   type ModelHealth,
+  type TrafficReading,
 } from "@/lib/mlHealth";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
 
@@ -23,7 +24,10 @@ export async function modelHealthFor(
   const live = models.filter((m) => m.production_version_id);
   if (live.length === 0) return out;
   const versionIds = live.map((m) => m.production_version_id as string);
-  const [limits, { data: preds }, { data: evals }] = await Promise.all([
+  // The hourly check stops writing when the traffic stops, so a verdict older
+  // than two days is about traffic that is no longer arriving: left out.
+  const recent = new Date(Date.now() - 48 * 3_600_000).toISOString();
+  const [limits, { data: preds }, { data: evals }, checks] = await Promise.all([
     getPlatformResources(),
     supabaseAdmin
       .from("ml_predictions")
@@ -41,6 +45,13 @@ export async function modelHealthFor(
       .in("version_id", versionIds)
       .order("created_at", { ascending: false })
       .limit(versionIds.length * 8),
+    // One row per version (R545). Before migration 20261207000000 the table is
+    // not there and the read errors: health is then what it was.
+    supabaseAdmin
+      .from("ml_traffic_checks")
+      .select("version_id, score, checked_at")
+      .in("version_id", versionIds)
+      .gte("checked_at", recent),
   ]);
   // Newest first, so the first row seen per version is the latest reading.
   const drift = new Map<string, DriftReading>();
@@ -64,9 +75,21 @@ export async function modelHealthFor(
       at: e.created_at,
     });
   }
+  const traffic = new Map<string, TrafficReading>();
+  for (const c of checks.error ? [] : (checks.data ?? [])) {
+    if (typeof c.score !== "number") continue;
+    traffic.set(c.version_id, {
+      score: c.score,
+      threshold: limits.mlDriftAlertPsi,
+      at: c.checked_at,
+    });
+  }
   for (const m of live) {
     const v = m.production_version_id as string;
-    out.set(m.id, describeModelHealth(drift.get(v) ?? null, evaluation.get(v) ?? null));
+    out.set(
+      m.id,
+      describeModelHealth(drift.get(v) ?? null, evaluation.get(v) ?? null, traffic.get(v) ?? null),
+    );
   }
   return out;
 }

@@ -9,6 +9,10 @@
 // nothing, so an answer could rest on a model whose owner had been warned
 // about it that morning.
 //
+// A third reading joined them in R546: the hourly check on LIVE TRAFFIC
+// (R545), for a model answering requests online a few rows at a time, which
+// no prediction run measures.
+//
 // This module turns the latest of each into the words that travel with the
 // model wherever it is offered. Pure, so the agent tool, the analyst's
 // planner and the Playground can all agree on the sentence, and a test can
@@ -32,9 +36,21 @@ export type EvaluationReading = {
   at: string;
 };
 
+/** The hourly check's verdict on the last day of online requests (R545). */
+export type TrafficReading = {
+  score: number;
+  threshold: number;
+  /** When the check measured it. */
+  at: string;
+};
+
+/** How a live-traffic alert begins, so a list can send it to the right tab. */
+export const LIVE_TRAFFIC_ALERT = "Drift in live traffic:";
+
 export type ModelHealth = {
   drift: DriftReading | null;
   evaluation: EvaluationReading | null;
+  traffic: TrafficReading | null;
   /**
    * What is currently wrong, as full sentences. Empty means nothing the
    * platform can see — which is not the same as healthy, and the summary
@@ -52,6 +68,7 @@ const pct = (ratio: number) => `${Math.round(Math.abs(ratio) * 100)}%`;
 export function describeModelHealth(
   drift: DriftReading | null,
   evaluation: EvaluationReading | null,
+  traffic: TrafficReading | null = null,
 ): ModelHealth {
   const alerts: string[] = [];
   const short: string[] = [];
@@ -81,6 +98,15 @@ export function describeModelHealth(
       `suspiciously improved (${evaluation.metric} ${num(evaluation.value)} on ${day(evaluation.at)})`,
     );
   }
+  // Only the headline travels: that live traffic drifted, and by how much.
+  // Which features moved is on the owner's own card, because the window sums
+  // every caller's requests.
+  if (traffic && traffic.score >= traffic.threshold) {
+    alerts.push(
+      `${LIVE_TRAFFIC_ALERT} the last day of online requests, checked on ${day(traffic.at)}, differs from the training data (PSI ${num(traffic.score)} against the alert threshold ${num(traffic.threshold)}); consider retraining before trusting new predictions.`,
+    );
+    short.push(`open live-traffic drift alert (PSI ${num(traffic.score)} on ${day(traffic.at)})`);
+  }
   let summary: string | null = short.length ? short.join("; ") : null;
   if (!summary && evaluation) {
     summary = `evaluated ${evaluation.verdict ?? "without a verdict"} on ${day(evaluation.at)} (${evaluation.metric} ${num(evaluation.value)})`;
@@ -88,7 +114,10 @@ export function describeModelHealth(
   if (!summary && drift) {
     summary = `no drift on ${day(drift.at)} (PSI ${num(drift.score)})`;
   }
-  return { drift, evaluation, alerts, summary };
+  if (!summary && traffic) {
+    summary = `live traffic steady on ${day(traffic.at)} (PSI ${num(traffic.score)})`;
+  }
+  return { drift, evaluation, traffic, alerts, summary };
 }
 
 /** The line an agent tool or a planner carries beside the model's name. */
