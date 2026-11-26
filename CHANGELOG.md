@@ -309,6 +309,15 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Notebooks from your repository** (R543).
+  - **Import from repo** on the Developer workspace makes a notebook from a
+    file in the connected repository. It reads a `.py` with `# %%` cells (as
+    other editors write them), a plain script, or a Jupyter `.ipynb`.
+  - **Committed back in its own format.** An imported notebook stays linked to
+    its file, and Commit writes it back there without outputs.
+  - **Update from repo** says what changed in the file at the head of the
+    branch, then applies that commit.
+  - **Restore reads `.ipynb` too.**
 - **Promote model and Deploy model steps** (R542). An ML pipeline can finish
   what its retrain starts.
   - **Promote model** puts the newest trained version into production. By

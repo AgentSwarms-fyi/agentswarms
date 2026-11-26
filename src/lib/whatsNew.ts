@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "notebooks-from-repo",
+    date: "2026-11-26",
+    title: "Notebooks from your repository",
+    body: "Import a .py or Jupyter .ipynb notebook from your GitHub or GitLab repository. It stays linked: commits go back to its file in its own format, and Update from repo brings in what changed there.",
+    link: { to: "/notebooks" },
+    cta: "Open the Developer workspace",
+  },
+  {
     id: "ml-promote-deploy-steps",
     date: "2026-11-26",
     title: "Promote and deploy from an ML pipeline",

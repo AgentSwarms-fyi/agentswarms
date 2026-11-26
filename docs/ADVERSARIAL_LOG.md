@@ -109,6 +109,25 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-26 — R543: notebooks could go into the repository but not come out of it
+
+**Why this round.** The user asked that people can connect their own repository. After R541 pipelines and models could go both ways, but a notebook could only be committed, and its history only listed the platform's own commits. A notebook a teammate wrote, or a change pushed to the file, could not come in. Read as a data scientist whose team keeps its notebooks in Git as .py and .ipynb files.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A notebook in the repository could not be brought in, and a change made there could not either | S3 | **Found by the round's question.** **Import from repo** (Developer workspace) reads a `.py` with `# %%` cells (titles and `[md]` included), a plain script, or a Jupyter `.ipynb`. **Update from repo** (the notebook's Git dialog) previews then applies the file at the head of the branch. |
+| Restore could only read the platform's own `.py` files | S3 | **Found in review.** A notebook linked to an `.ipynb` would have restored nothing. Restore, import and update now share one reader for both formats. |
+| An imported notebook would have been committed to a new file in a new format | S2 | **Found in review.** Commits always wrote `<title>-<id>.py` and a manifest, so a teammate's `analysis.ipynb` would have gained an unrelated `.py` beside it. A notebook imported from a file now commits back to that file, in its format. One the platform created keeps the generated file and manifest, as before. |
+| "Connect a Git repository first Integrations → Git repository" | S4 | **Found in the UI test.** The sentence and its link are joined now. |
+
+**Checked and sound.**
+- **No outputs are written.** An output can hold the rows a cell ran on. A written `.ipynb` has empty outputs and no execution counts, and is byte-identical for the same cells (tested).
+- **The platform's own files read back unchanged.** A file it wrote is read with the parser that wrote it; both parsers return the same cells for it (tested).
+- **What was previewed is what is applied.** Update takes the commit its preview read.
+- **Edits not yet committed are asked about.** If the notebook changed here since the last commit, Update asks before replacing it.
+- **Inside the repository only.** A folder or path with `..`, an empty part, or anything but letters, digits, spaces and `._/-` is refused. Only `.py` and `.ipynb` are read: at most 2 MB and 1,000 cells.
+- **A fresh import reads "Up to date".** The recorded hash is the notebook as stored, not the file's bytes.
+
 ### 2026-11-26 — R542: a pipeline that could train a model but not ship it
 
 **Why this round.** After R540 and R541 an ML pipeline could retrain, score, run on Kubeflow and be deployed from Git, but could not promote what it trained or put it in front of requests. Read as a team that wants retrain, canary, approve and roll out as one pipeline. Also read as the approver whose sign-off has to hold when nobody is at the keyboard.

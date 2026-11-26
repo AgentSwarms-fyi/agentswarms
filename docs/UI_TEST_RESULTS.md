@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-26 — R543: notebooks from your repository
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab. No repository is connected on this account and none was connected for the test: settings saved for a test could not be taken out again, and the account's BI Git sync would show them. So importing, committing back and updating were driven in the tests (`notebookRepo.test.ts`: the formats round-trip, the platform's own files read back unchanged, the server's paths pinned); here, everything up to the repository.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Developer workspace | the header | **Import from repo** beside **New Python notebook** |
+| Import from repo | opened with no repository | the dialog says what it reads (.py with `# %%` cells, Jupyter .ipynb) and that an import stays linked; the folder field; "Connect a Git repository first Integrations → Git repository", the sentence and the link run together (fixed: "…first, under Integrations → Git repository.") |
+| Same | the link | lands on Integrations → **Git repository** |
+| R542, on this image | a Deploy model step's How | "Serve production", "Canary (answers a share)", "Shadow (answers nobody)", whole in the field; left without saving |
+
 ## 2026-11-26 — R542: Promote model and Deploy model steps
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab, on the "ML pipeline" kept from R540. Migration `20261205000000` is not applied on this database, so a run of the new steps was driven in the tests against the real promotion gate (`mlDeliverySteps.test.ts`), and here up to the database's refusal. Kept: nothing; the two steps added for the test were removed and the pipeline saved back to its one Retrain step.

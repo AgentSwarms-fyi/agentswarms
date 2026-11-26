@@ -9,7 +9,8 @@ import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tan
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, FlaskConical, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ArrowRight, Download, FlaskConical, Plus, Sparkles, Trash2 } from "lucide-react";
+import { NotebookImportDialog } from "@/components/notebooks/NotebookImportDialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -303,6 +304,8 @@ function PythonLabCatalog({
   creating: boolean;
 }) {
   const [runtimeEnabled, setRuntimeEnabled] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const { session } = useAuth();
   useEffect(() => {
     supabase
       .from("notebook_runtime_settings")
@@ -324,10 +327,24 @@ function PythonLabCatalog({
           title="Developer workspace"
           description="Python notebooks that run on sandboxed server kernels. Start from a sample below or create your own."
           actions={
-            <Button className="shrink-0 gap-1.5" onClick={onCreate} disabled={creating}>
-              <Plus className="h-4 w-4" /> New Python notebook
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                className="shrink-0 gap-1.5"
+                onClick={() => setImporting(true)}
+              >
+                <Download className="h-4 w-4" /> Import from repo
+              </Button>
+              <Button className="shrink-0 gap-1.5" onClick={onCreate} disabled={creating}>
+                <Plus className="h-4 w-4" /> New Python notebook
+              </Button>
+            </>
           }
+        />
+        <NotebookImportDialog
+          open={importing}
+          onOpenChange={setImporting}
+          token={session?.access_token ?? ""}
         />
 
         <div className="mb-8 grid gap-3 sm:grid-cols-3">

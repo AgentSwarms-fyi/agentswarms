@@ -465,7 +465,35 @@ hits = await agentswarms.kb_search("incidents", top_k=5)`}</Code>
           <strong>Restore</strong> reads the file back at that commit and replaces the notebook's
           cells. Anything not committed is lost, so it asks first.
         </li>
+        <li>
+          <strong>Update from repo</strong> reads the notebook's file at the head of the branch,
+          where a teammate may have changed it, and says what would change (how many cells, how many
+          of them differ). <strong>Update this notebook</strong> applies exactly that commit, and
+          asks first when there are edits here that were never committed.
+        </li>
       </UL>
+      <H3 id="import-from-repo">Notebooks from your repository</H3>
+      <P>
+        <strong>Import from repo</strong> on the Developer workspace lists the notebooks in a folder
+        of the repository (the notebooks folder at first, or any folder you name). Both kinds of
+        file are read:
+      </P>
+      <UL>
+        <li>
+          A <C>.py</C> with <C>{`# %%`}</C> cells, as written here or by other editors (cell titles
+          and <C>[md]</C> included). A plain script with no markers becomes one code cell.
+        </li>
+        <li>
+          A Jupyter <C>.ipynb</C> (format 4). Its outputs are not read.
+        </li>
+      </UL>
+      <P>
+        An imported notebook stays linked to its file. <strong>Commit</strong> writes it back to
+        that same file in that same format, so an <C>.ipynb</C> stays an <C>.ipynb</C> and the pull
+        request shows changed cells, not a changed format. It is written without outputs, because an
+        output can hold the data the cell ran on. A file already imported shows{" "}
+        <strong>Open yours</strong> instead of Import.
+      </P>
       <Callout kind="why">
         A JSON blob of cells is technically versionable and practically useless — a one-word edit
         rewrites the whole line and no reviewer can read the diff. Committing real Python means a

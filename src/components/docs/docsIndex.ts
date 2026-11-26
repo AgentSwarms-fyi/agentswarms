@@ -3772,7 +3772,9 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "Developer workspace",
     "description": "Python notebooks at /notebooks that execute on sandboxed server kernels — real CPython with pip and the agentic frameworks pre-installed. Start from read-only framework samples, or write your own and call models and knowledge bases through your account.",
     "terms": [
+      ".ipynb",
       ".json",
+      ".py",
       "202",
       "NOTEBOOK_CRON_TOKEN",
       "NOTEBOOK_GATEWAY_URL",
@@ -3781,6 +3783,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "NOTEBOOK_RUNTIME_IMAGE",
       "NOTEBOOK_RUNTIME_SECRET",
       "PIP_USER=1",
+      "[md]",
       "async",
       "build-essential",
       "chat",
@@ -3861,6 +3864,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "versioning",
         "text": "Version control (Git)",
         "level": 2
+      },
+      {
+        "id": "import-from-repo",
+        "text": "Notebooks from your repository",
+        "level": 3
       }
     ]
   },

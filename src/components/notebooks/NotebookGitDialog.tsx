@@ -1,5 +1,6 @@
 // Git versioning for a notebook: commit it, see its history, restore an
-// earlier commit.
+// earlier commit, and (R543) update it from its file at the head of the
+// branch when somebody changed it in the repository.
 //
 // The repository is the same per-user connection BI uses, so it can be set up
 // from either place — there is one repo, not one per feature.
@@ -7,7 +8,15 @@ import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { useCallback, useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { ExternalLink, GitBranch, History, Loader2, RotateCcw, UploadCloud } from "lucide-react";
+import {
+  Download,
+  ExternalLink,
+  GitBranch,
+  History,
+  Loader2,
+  RotateCcw,
+  UploadCloud,
+} from "lucide-react";
 
 import {
   Dialog,
@@ -32,9 +41,12 @@ import { SecretSelect } from "@/components/secrets/SecretSelect";
 import {
   nbGitCommit,
   nbGitHistory,
+  nbGitPull,
+  nbGitPullPreview,
   nbGitRestore,
   type NbGitVersion,
 } from "@/utils/notebookGit.functions";
+import { cellChangesLine, noCellChanges, type CellChanges } from "@/lib/notebookFiles";
 import { reportFailure } from "@/lib/silentFailureNet";
 
 export function NotebookGitDialog({
@@ -54,6 +66,14 @@ export function NotebookGitDialog({
   const historyFn = useServerFn(nbGitHistory);
   const commitFn = useServerFn(nbGitCommit);
   const restoreFn = useServerFn(nbGitRestore);
+  const previewFn = useServerFn(nbGitPullPreview);
+  const pullFn = useServerFn(nbGitPull);
+  const [incoming, setIncoming] = useState<{
+    path: string;
+    commit: string;
+    changes: CellChanges;
+    dirty: boolean;
+  } | null>(null);
   const saveConfigFn = useServerFn(gitSaveConfig);
 
   const [loading, setLoading] = useState(true);
@@ -87,6 +107,7 @@ export function NotebookGitDialog({
 
   useEffect(() => {
     if (open) load();
+    if (!open) setIncoming(null);
   }, [open, load]);
 
   async function connect() {
@@ -136,6 +157,46 @@ export function NotebookGitDialog({
     }
   }
 
+  /** What the file at the head of the branch would change, read on request. */
+  async function checkRepo() {
+    setBusy(true);
+    try {
+      const res = await previewFn({ data: { access_token: token, notebook_id: notebookId } });
+      if (!res.ok) return toast.error(res.error);
+      setIncoming({ path: res.path, commit: res.commit, changes: res.changes, dirty: res.dirty });
+    } catch (e) {
+      reportFailure("read the repository", e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pull() {
+    if (!incoming) return;
+    if (
+      incoming.dirty &&
+      !(await confirmAsk({
+        title: `Replace this notebook with ${incoming.path} at ${incoming.commit.slice(0, 7)}?\n\nEdits made here since the last commit will be lost.`,
+      }))
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await pullFn({
+        data: { access_token: token, notebook_id: notebookId, commit: incoming.commit },
+      });
+      if (!res.ok) return toast.error(res.error);
+      toast.success(`Updated from the repository: ${res.cells} cell${res.cells === 1 ? "" : "s"}`);
+      onRestored();
+      onOpenChange(false);
+    } catch (e) {
+      reportFailure("update from the repository", e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function restore(v: NbGitVersion) {
     if (
       !(await confirmAsk({
@@ -168,8 +229,10 @@ export function NotebookGitDialog({
             <GitBranch className="h-4 w-4 text-primary" /> Version control (Git)
           </DialogTitle>
           <DialogDescription>
-            Commit this notebook to your repository as a plain Python file, so its history lives
-            alongside the rest of your code and every change is reviewable.
+            Commit this notebook to your repository, so its history lives beside the rest of your
+            code and every change is reviewable. A notebook imported from a file is committed back
+            to that file, a .py or an .ipynb, without outputs; changes made there come in with
+            Update from repo.
           </DialogDescription>
         </DialogHeader>
 
@@ -274,6 +337,51 @@ export function NotebookGitDialog({
                 Commit
               </Button>
             </div>
+
+            {versions.length > 0 ? (
+              <div className="space-y-2 rounded-lg border border-border/60 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="min-w-0 text-xs text-muted-foreground">
+                    Kept in{" "}
+                    <span className="font-mono text-foreground">{versions[0].file_path}</span>
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 text-xs"
+                    disabled={busy}
+                    onClick={() => void checkRepo()}
+                  >
+                    <Download className="h-3 w-3" /> Update from repo
+                  </Button>
+                </div>
+                {incoming ? (
+                  <div className="space-y-2 text-xs" role="status">
+                    <p>
+                      At <span className="font-mono">{incoming.commit.slice(0, 7)}</span>:{" "}
+                      {noCellChanges(incoming.changes)
+                        ? "the notebook here already matches the file."
+                        : `${cellChangesLine(incoming.changes)}.`}
+                    </p>
+                    {incoming.dirty && !noCellChanges(incoming.changes) ? (
+                      <p className="text-amber-700 dark:text-amber-400">
+                        Edits made here since the last commit will be replaced.
+                      </p>
+                    ) : null}
+                    {!noCellChanges(incoming.changes) ? (
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs"
+                        disabled={busy}
+                        onClick={() => void pull()}
+                      >
+                        Update this notebook
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="space-y-2">
               <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
