@@ -344,6 +344,16 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **The assistant can ask to run or pause something** (R553). Asked to run
+  one of the reader's own workflows or pipelines now, or to pause or resume
+  its schedule, the assistant proposes it with a new `propose_action` tool:
+  the proposal waits in the reader's approvals inbox, worded from fixed words
+  and the thing's name, and nothing happens until they approve it. Only the
+  owner's own things (a shared one is refused), only on the signed-in
+  reader's token (never a headless run), carried out once as the owner after
+  checking the thing again as it is then; a resumed schedule restarts from its
+  next time, not a missed one. Both steps are audited
+  (`assistant.action.proposed`, `assistant.action.applied`). No migration.
 - **Ask the assistant about one of your things** (R552). Type `@` in the
   assistant panel to mention a model, dataset, dashboard, workflow, agent or
   anything else search finds, and it reads that thing as you (row-level

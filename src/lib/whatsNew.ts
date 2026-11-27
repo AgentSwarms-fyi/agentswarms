@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "assistant-actions",
+    date: "2026-11-27",
+    title: "Ask the assistant to run or pause",
+    body: "Ask the assistant to run one of your workflows or pipelines now, or to pause its schedule, and it puts that in your approvals for you to say yes. Nothing happens until you do.",
+    link: { to: "/docs/dashboard" },
+    cta: "How it works",
+  },
+  {
     id: "assistant-mentions",
     date: "2026-11-27",
     title: "Ask the assistant about your things",

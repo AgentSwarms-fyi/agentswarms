@@ -119,6 +119,8 @@ export function toolLabel(t: AssistantToolUse): string {
       return running ? "Looking through your work…" : "Looked through your work";
     case "describe_my_thing":
       return running ? "Reading it…" : "Read it";
+    case "propose_action":
+      return running ? "Asking for your approval…" : "Asked for your approval";
     default:
       return running ? "Working…" : "Looked something up";
   }

@@ -1226,6 +1226,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "level": 3
       },
       {
+        "id": "assistant-actions",
+        "text": "Asking it to run or pause something",
+        "level": 3
+      },
+      {
         "id": "trash",
         "text": "Trash",
         "level": 2

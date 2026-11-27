@@ -309,7 +309,8 @@ function PanelBody({
             <p className="text-sm leading-6 text-muted-foreground">
               Ask what this page is for, how to do something, or where one of your things is. Type @
               to ask about one of your things by name. Answers come from the handbook and your own
-              work; the assistant does not change anything.
+              work. The assistant changes nothing itself: asked to run or pause one of your
+              workflows or pipelines, it puts that in your approvals for you to say yes.
             </p>
             <div className="flex flex-col items-start gap-2">
               {starters.map((q) => (

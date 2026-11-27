@@ -1678,6 +1678,8 @@ export const TOOLABLE_IDS = [
   "find_my_work",
   // And one of those things read for its facts (R552), with the same rule.
   "describe_my_thing",
+  // And a change to one of them proposed for its owner's approval (R553).
+  "propose_action",
 ] as const;
 export type ToolableId = (typeof TOOLABLE_IDS)[number];
 
@@ -1963,6 +1965,13 @@ export async function resolveAgentTools(
       await import("@/utils/assistant/describe.server");
     tools.push(describeMyThingTool);
     handlers.set("describe_my_thing", runDescribeMyThing);
+  }
+  // Proposes only: what it files waits in the reader's own approvals inbox.
+  if (allow?.includes("propose_action") && ctx.authToken && !ctx.scopeUserId) {
+    const { proposeActionTool, runProposeAction } =
+      await import("@/utils/assistant/actions.server");
+    tools.push(proposeActionTool);
+    handlers.set("propose_action", runProposeAction);
   }
   if (allows("weather")) {
     tools.push(weatherTool);

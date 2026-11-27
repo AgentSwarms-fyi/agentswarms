@@ -492,6 +492,38 @@ function DashboardDoc() {
         The thing open on your page is read the same way when you ask about it. A name or a
         description someone else wrote is read as theirs, never as an instruction to the assistant.
       </P>
+      <H3 id="assistant-actions">Asking it to run or pause something</H3>
+      <P>
+        The assistant changes nothing itself. Ask it to run one of your workflows or pipelines now,
+        or to pause or resume its schedule (<em>pause @Nightly revenue</em>), and it puts that in
+        your approvals inbox, the tray at the top of the page, with what approving does. Nothing
+        happens until you approve it there; reject it and nothing changes.
+      </P>
+      <Table
+        headers={["You ask", "Approving it"]}
+        rows={[
+          [
+            "Run it now",
+            "Starts one run, as Run now on its page does; its schedule is not changed",
+          ],
+          [
+            "Pause its schedule",
+            "Stops its scheduled runs; a run already going is not stopped, and you can still run it by hand",
+          ],
+          [
+            "Resume its schedule",
+            "Starts its scheduled runs again from its next scheduled time, not from a run missed while it was paused",
+          ],
+        ]}
+      />
+      <P>
+        Only your own workflows and pipelines: one shared with you is its owner&apos;s to run or
+        pause, and the assistant says so. Pausing needs a schedule that is running, resuming one
+        that is paused. Approving carries it out once, as you, after checking the thing again as it
+        is then, so a workflow you paused by hand in the meantime is left as it is. The approval is
+        worded from fixed words and the thing&apos;s name, not from what the assistant wrote, and
+        both the proposal and what was done are in the audit log.
+      </P>
       <Table
         headers={["In the panel", "What it does"]}
         rows={[
@@ -507,15 +539,16 @@ function DashboardDoc() {
         ]}
       />
       <P>
-        It reads and explains; it does not change anything. It runs on the workspace&apos;s default
-        model (Admin → Developer runtime → AI services → Default model), under your role&apos;s
-        model rules and your AI budget, as every other AI feature does, and each answer is recorded
-        like any other model call, named <em>Assistant</em>, with what it looked up sealed under
-        your key. The conversation follows you from page to page and is kept in this browser tab
-        only: closing the tab forgets it, and someone else signing in on the same browser does not
-        see it. In search (<C>Ctrl/⌘ K</C>), anything you type can be handed to the assistant with{" "}
-        <strong>Ask the assistant</strong>, which is the way to go when what you typed is a question
-        rather than a name.
+        It reads and explains, and changes nothing itself (it can{" "}
+        <a href="#assistant-actions">ask for a run or a pause</a>, which waits for your yes). It
+        runs on the workspace&apos;s default model (Admin → Developer runtime → AI services →
+        Default model), under your role&apos;s model rules and your AI budget, as every other AI
+        feature does, and each answer is recorded like any other model call, named{" "}
+        <em>Assistant</em>, with what it looked up sealed under your key. The conversation follows
+        you from page to page and is kept in this browser tab only: closing the tab forgets it, and
+        someone else signing in on the same browser does not see it. In search (<C>Ctrl/⌘ K</C>),
+        anything you type can be handed to the assistant with <strong>Ask the assistant</strong>,
+        which is the way to go when what you typed is a question rather than a name.
       </P>
 
       <H2 id="trash">Trash</H2>

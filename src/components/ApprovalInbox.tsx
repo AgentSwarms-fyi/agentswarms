@@ -10,6 +10,13 @@ import { fixFromPayload, RUN_FIX_ACTION } from "@/lib/runFixes";
 import { applyApprovedRunFixFn } from "@/utils/runFixes.functions";
 import { ML_TRAIN_ACTION, proposalFromPayload } from "@/lib/mlProposals";
 import { applyApprovedTrainingFn } from "@/utils/mlProposals.functions";
+import {
+  ASSISTANT_ACTION,
+  actionFromPayload,
+  actionRoute,
+  actionTitle,
+} from "@/lib/assistantActions";
+import { applyApprovedAssistantActionFn } from "@/utils/assistantActions.functions";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Inbox,
@@ -25,6 +32,7 @@ import {
   Globe,
   Wrench,
   FlaskConical,
+  MessageSquareText,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Json } from "@/integrations/supabase/types";
@@ -75,6 +83,7 @@ const ACTION_ICON: Record<string, LucideIcon> = {
   [HIDE_COLUMNS_ACTION]: EyeOff,
   [RUN_FIX_ACTION]: Wrench,
   [ML_TRAIN_ACTION]: FlaskConical,
+  [ASSISTANT_ACTION]: MessageSquareText,
 };
 
 /** Where a suggested fix's check or pipeline is, built from its checked target. */
@@ -95,6 +104,8 @@ function waitingWord(actionType: string): string {
   if (actionType === HIDE_COLUMNS_ACTION || actionType === RUN_FIX_ACTION) return "suggested";
   // An agent suggested a model in chat (R527); nothing is stuck waiting.
   if (actionType === ML_TRAIN_ACTION) return "proposed";
+  // The assistant asked for one of a few changes (R553).
+  if (actionType === ASSISTANT_ACTION) return "proposed";
   return "paused";
 }
 
@@ -103,13 +114,15 @@ const fromAnAgent = (actionType: string) =>
   actionType !== "ml.promote" &&
   actionType !== HIDE_COLUMNS_ACTION &&
   actionType !== RUN_FIX_ACTION &&
-  actionType !== ML_TRAIN_ACTION;
+  actionType !== ML_TRAIN_ACTION &&
+  actionType !== ASSISTANT_ACTION;
 
 /** A yes or no that is a suggestion, not a run waiting: fixed words in its toast. */
 const isSuggestion = (actionType: string) =>
   actionType === HIDE_COLUMNS_ACTION ||
   actionType === RUN_FIX_ACTION ||
-  actionType === ML_TRAIN_ACTION;
+  actionType === ML_TRAIN_ACTION ||
+  actionType === ASSISTANT_ACTION;
 
 const RISK_COLORS: Record<string, string> = {
   low: "bg-blue-500/10 text-blue-400 border-blue-500/30",
@@ -135,6 +148,7 @@ export function ApprovalInbox() {
   const applyHideFn = useServerFn(applyApprovedColumnHideFn);
   const applyRunFixFn = useServerFn(applyApprovedRunFixFn);
   const applyTrainingFn = useServerFn(applyApprovedTrainingFn);
+  const applyAssistantFn = useServerFn(applyApprovedAssistantActionFn);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(false);
@@ -270,6 +284,51 @@ export function ApprovalInbox() {
         const res = await applyRunFixFn({ data: { approvalId: id } });
         if (res.ok) toast.success("Changed", { description: res.message });
         else toast.warning("Decision saved, but nothing was changed", { description: res.error });
+      } catch (e) {
+        toast.warning("Decision saved, but nothing was changed", {
+          description: (e as Error).message,
+        });
+      }
+      return;
+    }
+    // A change the assistant proposed (R553): a yes carries it out, once, as
+    // its owner, through the page's own path.
+    if (item?.action_type === ASSISTANT_ACTION) {
+      const proposal = actionFromPayload(item.payload);
+      const title = proposal ? actionTitle(proposal) : item.action_title;
+      if (status === "rejected") {
+        toast(`Not done: ${title}`, { description: "Nothing was changed." });
+        return;
+      }
+      try {
+        const res = await applyAssistantFn({ data: { approvalId: id } });
+        if (res.ok) {
+          toast.success(
+            // "Run the workflow “X” now" said as done: "Ran the workflow “X” now".
+            title
+              .replace(/^Run /, "Ran ")
+              .replace(/^Pause /, "Paused ")
+              .replace(/^Resume /, "Resumed "),
+            {
+              description: res.message,
+              ...(proposal
+                ? {
+                    action: {
+                      label: "Open",
+                      onClick: () => {
+                        setOpen(false);
+                        const r = actionRoute(proposal);
+                        void navigate({ to: r.to, search: { open: r.open } as never });
+                      },
+                    },
+                  }
+                : {}),
+              duration: 10000,
+            },
+          );
+        } else {
+          toast.warning("Decision saved, but nothing was changed", { description: res.error });
+        }
       } catch (e) {
         toast.warning("Decision saved, but nothing was changed", {
           description: (e as Error).message,
@@ -550,7 +609,20 @@ export function ApprovalInbox() {
                           )}
                         </div>
                       ) : ap.action_type === ML_TRAIN_ACTION ? null : ap.action_type ===
-                        RUN_FIX_ACTION ? (
+                        ASSISTANT_ACTION ? (
+                        actionFromPayload(ap.payload) && (
+                          <Link
+                            to={actionRoute(actionFromPayload(ap.payload)!).to}
+                            search={
+                              { open: actionRoute(actionFromPayload(ap.payload)!).open } as never
+                            }
+                            onClick={() => setOpen(false)}
+                            className="inline-block text-xs text-primary underline-offset-2 hover:underline"
+                          >
+                            Open it
+                          </Link>
+                        )
+                      ) : ap.action_type === RUN_FIX_ACTION ? (
                         fixLink(ap.payload) && (
                           <Link
                             to={fixLink(ap.payload)!.to as never}
