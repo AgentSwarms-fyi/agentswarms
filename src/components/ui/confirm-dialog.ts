@@ -35,9 +35,22 @@ export type ConfirmRequest = {
   input?: { placeholder?: string; required?: boolean; defaultValue?: string };
 };
 
+/**
+ * A question with a second way forward, shown between Cancel and the action:
+ * "Save and leave" beside "Discard changes". The alternative is the button the
+ * dialog leads with; the action becomes the outlined one beside it.
+ */
+export type ChooseRequest = ConfirmRequest & { alternativeLabel: string };
+
+/** What chooseAsk resolves to: the action, the alternative, or neither. */
+export type Choice = "action" | "alternative" | "cancel";
+
+/** What the host passes back when the alternative was picked. */
+export const ALTERNATIVE = Symbol("alternative");
+
 export type Pending = {
-  req: ConfirmRequest;
-  resolve: (v: boolean | string | null) => void;
+  req: ConfirmRequest | ChooseRequest;
+  resolve: (v: boolean | string | null | typeof ALTERNATIVE) => void;
 };
 
 let deliver: ((p: Pending) => void) | null = null;
@@ -53,7 +66,21 @@ let deliver: ((p: Pending) => void) | null = null;
 export function confirmAsk(req: ConfirmRequest): Promise<boolean> {
   return new Promise((resolve, reject) => {
     if (!deliver) return reject(new Error("Confirmation dialog is not mounted"));
-    deliver({ req, resolve: (v) => resolve(Boolean(v)) });
+    deliver({ req, resolve: (v) => resolve(v !== ALTERNATIVE && Boolean(v)) });
+  });
+}
+
+/**
+ * Ask a question with two ways forward. Resolves "cancel" when dismissed, so
+ * Escape and clicking outside never pick either way.
+ */
+export function chooseAsk(req: ChooseRequest): Promise<Choice> {
+  return new Promise((resolve, reject) => {
+    if (!deliver) return reject(new Error("Confirmation dialog is not mounted"));
+    deliver({
+      req,
+      resolve: (v) => resolve(v === ALTERNATIVE ? "alternative" : v === true ? "action" : "cancel"),
+    });
   });
 }
 

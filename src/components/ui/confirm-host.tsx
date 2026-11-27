@@ -13,8 +13,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { buttonVariants } from "@/components/ui/button";
 import {
+  ALTERNATIVE,
   connectConfirmHost,
+  type ChooseRequest,
   type ConfirmRequest,
   type Pending,
 } from "@/components/ui/confirm-dialog";
@@ -33,7 +36,7 @@ export function ConfirmHost() {
    * reader had decided something. This holds the last request until a new one
    * replaces it, so the dialog fades out still saying what it said.
    */
-  const [shown, setShown] = useState<ConfirmRequest | null>(null);
+  const [shown, setShown] = useState<ConfirmRequest | ChooseRequest | null>(null);
   const [text, setText] = useState("");
   const resolver = useRef<Pending["resolve"] | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -49,7 +52,7 @@ export function ConfirmHost() {
     [],
   );
 
-  const settle = useCallback((value: boolean | string | null) => {
+  const settle = useCallback((value: boolean | string | null | typeof ALTERNATIVE) => {
     // Exactly once. Escape also fires onOpenChange, and a caller left awaiting
     // for ever is the same silent nothing in a different costume.
     const r = resolver.current;
@@ -78,6 +81,11 @@ export function ConfirmHost() {
   const verb = /^(Delete|Drop|Remove|Restore|Discard|Revoke|Disconnect)\b/i.exec(title.trim())?.[1];
   const actionLabel =
     req?.actionLabel ?? (verb ? verb[0].toUpperCase() + verb.slice(1).toLowerCase() : "Confirm");
+  // chooseAsk's second way forward ("Save and leave" beside "Discard
+  // changes"). When there is one, it is the button the dialog leads with, and
+  // the action steps back to an outlined button: the way that keeps work is
+  // the one a reader in a hurry should hit.
+  const alternativeLabel = req && "alternativeLabel" in req ? req.alternativeLabel : null;
 
   return (
     <AlertDialog
@@ -120,9 +128,22 @@ export function ConfirmHost() {
           <AlertDialogCancel onClick={() => settle(wantsText ? null : false)}>
             Cancel
           </AlertDialogCancel>
-          <AlertDialogAction disabled={blocked} onClick={() => settle(wantsText ? text : true)}>
+          <AlertDialogAction
+            disabled={blocked}
+            className={
+              alternativeLabel
+                ? `${buttonVariants({ variant: "outline" })} text-foreground`
+                : undefined
+            }
+            onClick={() => settle(wantsText ? text : true)}
+          >
             {actionLabel}
           </AlertDialogAction>
+          {alternativeLabel && (
+            <AlertDialogAction onClick={() => settle(ALTERNATIVE)}>
+              {alternativeLabel}
+            </AlertDialogAction>
+          )}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
