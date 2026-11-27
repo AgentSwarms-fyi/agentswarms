@@ -7,6 +7,7 @@ import { ArrowUp, Loader2, MessageSquareText, Square, SquarePen, X } from "lucid
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -20,6 +21,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import type { AssistantState } from "@/hooks/use-assistant";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { assistantPage, type AssistantPage } from "@/lib/assistantPage";
+import { assistantPlacement, type AssistantPlacement } from "@/lib/assistantPlacement";
 import { assistantSystemPrompt, starterQuestions } from "@/lib/assistantPrompt";
 import {
   appPath,
@@ -315,9 +317,35 @@ function PanelBody({
   );
 }
 
-/** The panel: beside the page on a wide screen, over it on a phone. */
+/**
+ * Beside the page or over it (src/lib/assistantPlacement.ts), from the width of
+ * the area the page and the panel share: the panel's parent, which keeps its
+ * width whichever way the panel sits. Measured before paint, so the panel does
+ * not open beside a page and then jump over it.
+ */
+function usePlacement(panel: HTMLElement | null): AssistantPlacement {
+  const [placement, setPlacement] = useState<AssistantPlacement>("beside");
+  useLayoutEffect(() => {
+    const room = panel?.parentElement;
+    if (!room) return;
+    const measure = () => setPlacement(assistantPlacement(room.clientWidth));
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(room);
+    return () => ro.disconnect();
+  }, [panel]);
+  return placement;
+}
+
+/**
+ * The panel: beside the page on a wide screen, floating over its right edge
+ * when beside it would leave the page too narrow, and over it on a phone.
+ */
 export function AssistantPanel({ state }: { state: AssistantState }) {
   const isMobile = useIsMobile();
+  const [panel, setPanel] = useState<HTMLElement | null>(null);
+  const placement = usePlacement(panel);
   const location = useRouterState({ select: (s) => s.location });
   const page = useMemo(
     () => assistantPage(location.pathname, location.search as Record<string, unknown>),
@@ -355,11 +383,18 @@ export function AssistantPanel({ state }: { state: AssistantState }) {
   if (!state.open) return null;
   return (
     <aside
+      ref={setPanel}
       aria-label="Assistant"
+      data-placement={placement}
       onKeyDown={onKeyDown}
       className={cn(
-        "sticky z-30 w-[380px] shrink-0 self-start border-l bg-background",
+        "w-[380px] border-l bg-background",
         "top-[var(--app-chrome-h)] h-[calc(100dvh-var(--app-chrome-h))]",
+        // Beside: the page gives up the panel's width. Over: the page keeps
+        // its width and the panel floats on its right edge, under dialogs.
+        placement === "beside"
+          ? "sticky z-30 shrink-0 self-start"
+          : "fixed right-0 z-40 shadow-2xl",
       )}
     >
       <PanelBody state={state} page={page} objectName={objectName} onClose={close} />
