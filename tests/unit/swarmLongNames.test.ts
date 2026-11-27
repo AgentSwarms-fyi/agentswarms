@@ -24,7 +24,8 @@ describe("a canvas node", () => {
 
   it("cuts its name and model and shows them whole on hover", () => {
     expect(canvas).toMatch(
-      /<p className="text-sm font-semibold truncate" title=\{data\.label\}>\s*\{data\.label\}/,
+      // shownNodeLabel: the name, or "Untitled" for a blank one (swarmNames.test.ts).
+      /<p className="text-sm font-semibold truncate" title=\{shownNodeLabel\(data\.label\)\}>\s*\{shownNodeLabel\(data\.label\)\}/,
     );
     expect(canvas).toMatch(/truncate font-mono" title=\{data\.model\}>\s*\{data\.model\}/);
   });

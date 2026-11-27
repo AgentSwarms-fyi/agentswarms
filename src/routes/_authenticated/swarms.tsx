@@ -105,6 +105,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { chooseInitialSwarm } from "@/lib/swarmInitialLoad";
+import { repairSwarmNodes, shownFieldLabel, shownNodeLabel } from "@/lib/swarmNames";
 import { NAME_MAX_LENGTH, nameProblem } from "@/lib/visibleName";
 import { supabase } from "@/integrations/supabase/client";
 import { ComponentLibraryDialog } from "@/components/swarms/ComponentLibraryDialog";
@@ -237,8 +238,8 @@ function GenericNode({
       <div className="p-3 flex items-center gap-2">
         <div className="text-xl">{data.avatar || "🤖"}</div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold truncate" title={data.label}>
-            {data.label}
+          <p className="text-sm font-semibold truncate" title={shownNodeLabel(data.label)}>
+            {shownNodeLabel(data.label)}
           </p>
           {data.model && (
             <p className="text-[10px] text-muted-foreground truncate font-mono" title={data.model}>
@@ -1465,11 +1466,15 @@ function SwarmsCanvas({
     }));
     // What this save sends: an edit made while it is in flight stays unsaved.
     const sent = canvasForm(swarmName, nodes, edges);
-    // Strip transient runtime fields before persisting
-    const cleanNodes = nodes.map((n) => ({
-      ...n,
-      data: { ...n.data, status: "idle", lastOutput: undefined },
-    }));
+    // Strip transient runtime fields before persisting, and repair any name
+    // that breaks the graph's rules (src/lib/swarmNames.ts): a restored
+    // version or an older graph is stored, not refused by the database.
+    const cleanNodes = repairSwarmNodes(
+      nodes.map((n) => ({
+        ...n,
+        data: { ...n.data, status: "idle", lastOutput: undefined },
+      })),
+    );
 
     if (!swarmId) {
       // Template loaded (or fresh canvas) but never saved — create a new row now.
@@ -1742,7 +1747,7 @@ function SwarmsCanvas({
     if (usingForm) {
       const missing = inputFields.filter((f) => f.required && !(fieldValues[f.name] ?? "").trim());
       if (missing.length > 0) {
-        toast.warning(`Fill in: ${missing.map((f) => f.label || f.name).join(", ")}`);
+        toast.warning(`Fill in: ${missing.map(shownFieldLabel).join(", ")}`);
         return;
       }
     } else if (!runInput.trim()) {
