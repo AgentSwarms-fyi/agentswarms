@@ -168,8 +168,11 @@ export const Route = createFileRoute("/_authenticated/swarms")({
 // Node renderers
 // ──────────────────────────────────────────────────────────────────
 function nodeShellClass(selected: boolean, color: string, status?: string): string {
+  // max-w: a node's name is cut, not the node stretched to fit it. An agent
+  // imported from the library brings its name (up to 120 characters), and the
+  // node grew as wide as that name, over its neighbours and off the canvas.
   const base =
-    "relative min-w-[180px] rounded-xl border-2 bg-card shadow-sm transition-[border-color,box-shadow] hover:shadow-md";
+    "relative min-w-[180px] max-w-[260px] rounded-xl border-2 bg-card shadow-sm transition-[border-color,box-shadow] hover:shadow-md";
   if (status === "running" || status === "waiting") {
     // The step the run is on: an amber edge, and its status dot pulses. The
     // card itself holds still, so its name stays readable while it works.
@@ -234,9 +237,13 @@ function GenericNode({
       <div className="p-3 flex items-center gap-2">
         <div className="text-xl">{data.avatar || "🤖"}</div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold truncate">{data.label}</p>
+          <p className="text-sm font-semibold truncate" title={data.label}>
+            {data.label}
+          </p>
           {data.model && (
-            <p className="text-[10px] text-muted-foreground truncate font-mono">{data.model}</p>
+            <p className="text-[10px] text-muted-foreground truncate font-mono" title={data.model}>
+              {data.model}
+            </p>
           )}
           {data.kind === "approval" && (
             <p className="text-[10px] text-muted-foreground truncate">
