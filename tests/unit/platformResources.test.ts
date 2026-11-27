@@ -48,9 +48,14 @@ describe("no compute limit is hardcoded", () => {
       expect(admin).not.toContain(forbidden);
     }
     expect(admin).toContain("mem_limit_mb: z.number().int().min(256).optional()");
-    expect(admin).toContain("lakehouse_threads: z.number().int().min(1).optional()");
-    expect(admin).toContain("etl_max_concurrent_runs_per_user: z.number().int().min(1).optional()");
-    expect(admin).toContain("etl_pipelines_per_sweep: z.number().int().min(1).optional()");
+    // Nullable since R550: clearing the saved value puts the env's back.
+    expect(admin).toContain("lakehouse_threads: z.number().int().min(1).nullable().optional()");
+    expect(admin).toContain(
+      "etl_max_concurrent_runs_per_user: z.number().int().min(1).nullable().optional()",
+    );
+    expect(admin).toContain(
+      "etl_pipelines_per_sweep: z.number().int().min(1).nullable().optional()",
+    );
   });
 
   it("validates CPU as a number, not as a string LENGTH", () => {

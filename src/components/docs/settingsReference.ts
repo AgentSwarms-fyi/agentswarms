@@ -3724,7 +3724,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
               {
                 "name": "ML_API_RATE_LIMIT_PER_MIN",
                 "line": "ML_API_RATE_LIMIT_PER_MIN=\"\"",
-                "note": "60 — calls a minute one ML API key may make (/api/ml/*)"
+                "note": "60 — calls a minute one ML API key may make (/api/ml/*); Admin wins (R550)"
               },
               {
                 "name": "ML_TRAIN_WORKERS",
@@ -3855,7 +3855,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Environment only, no Admin field: prediction runs measured against real outcomes in one scheduler pass. Each batch run is re-measured once a day while under 30 days old; this bounds a pass, not a resource."
+                "text": "Prediction runs measured against real outcomes in one scheduler pass. Each batch run is re-measured once a day while under 30 days old; this bounds a pass, not a resource. Admin -> Developer runtime wins over this (R550)."
               }
             ]
           },
@@ -3875,7 +3875,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Environment only. An explanation (\"why this answer\") costs one extra prediction per feature per row. The rows of one request that get one (the rest are scored without), and the features returned for each."
+                "text": "An explanation (\"why this answer\") costs one extra prediction per feature per row. The rows of one request that get one (the rest are scored without), and the features returned for each. Admin -> Developer runtime wins over these (R550)."
               }
             ]
           },
@@ -3900,7 +3900,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Environment only. Reason codes on a batch prediction: the most rows a batch asking for them may have (a larger one is refused before its sandbox starts, never half-written), the reasons written per row (two columns each), and the rows explained at a time, which bounds the sandbox's memory but not the time taken."
+                "text": "Reason codes on a batch prediction: the most rows a batch asking for them may have (a larger one is refused before its sandbox starts, never half-written), the reasons written per row (two columns each), and the rows explained at a time, which bounds the sandbox's memory but not the time taken. Admin -> Developer runtime wins over these (R550)."
               }
             ]
           },
@@ -3920,7 +3920,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Environment only. Autoscaling of a deployed model whose minimum and maximum copies differ. The requests a minute one copy is sized for: a copy is added as soon as the measured rate needs one. And the cooldown in seconds: a copy is removed only this long after the last change either way, and only once the quietest copy has been idle this long."
+                "text": "Autoscaling of a deployed model whose minimum and maximum copies differ. The requests a minute one copy is sized for: a copy is added as soon as the measured rate needs one. And the cooldown in seconds: a copy is removed only this long after the last change either way, and only once the quietest copy has been idle this long. Admin -> Developer runtime wins over these (R550)."
               }
             ]
           },
@@ -3935,7 +3935,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Environment only. The most a zipped MLflow model brought in as a version may weigh, in MB (1-4096). The upload is held in memory while its MLmodel file is read and its model file staged in the lake."
+                "text": "The most a zipped MLflow model brought in as a version may weigh, in MB (1-4096). The upload is held in memory while its MLmodel file is read and its model file staged in the lake. Admin -> Developer runtime wins over this (R550)."
               }
             ]
           },
@@ -3950,7 +3950,7 @@ export const SETTINGS_REFERENCE: SettingsTier[] = [
             "body": [
               {
                 "kind": "text",
-                "text": "Environment only. Warm model endpoints on KServe (Kubernetes). \"kserve\" serves each deployed model as a KServe InferenceService and leaves its pods to the cluster's autoscaler; \"sandbox\" (the default) starts and scales sandboxes itself, as above. Needs KServe in the cluster and the Helm chart's serving.kserve.enabled (which sets these). A predictor pod asks the app for its model with its endpoint's token and holds no storage credential."
+                "text": "Environment only, shown read-only under Admin -> Developer runtime (R550): it decides where models are deployed, with the cluster's permissions, so it is set with the cluster rather than from a page. Warm model endpoints on KServe (Kubernetes). \"kserve\" serves each deployed model as a KServe InferenceService and leaves its pods to the cluster's autoscaler; \"sandbox\" (the default) starts and scales sandboxes itself, as above. Needs KServe in the cluster and the Helm chart's serving.kserve.enabled (which sets these). A predictor pod asks the app for its model with its endpoint's token and holds no storage credential."
               }
             ]
           },

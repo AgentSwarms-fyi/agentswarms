@@ -132,8 +132,11 @@ describe("the flag survives the round trip", () => {
   it("is bounded, since every feature costs a prediction", () => {
     // Env-configurable like every other limit here: a ceiling on work, not a
     // licence fee, so a deployment with a big machine may raise it.
-    expect(PREDICT).toMatch(/envCount\("ML_EXPLAIN_MAX_ROWS", \d+\)/);
-    expect(PREDICT).toMatch(/envCount\("ML_EXPLAIN_TOP_K", \d+\)/);
+    // R550: platform settings (Admin -> Developer runtime, then the env, then a default).
+    const config = readFileSync("src/utils/notebookRuntime/config.server.ts", "utf8");
+    expect(config).toMatch(/envInt\("ML_EXPLAIN_MAX_ROWS"\) \?\? \d+/);
+    expect(config).toMatch(/envInt\("ML_EXPLAIN_TOP_K"\) \?\? \d+/);
+    expect(PREDICT).toContain("explain_max_rows: limits.mlExplainMaxRows,");
   });
 });
 

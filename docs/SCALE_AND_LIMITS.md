@@ -405,9 +405,11 @@ Training and batch prediction run inside batch sandboxes of the notebook
 runtime, so the sandbox limits (`batch_cpu_limit`, `sandbox_tmpfs_mb`) apply
 as well. Each value below is resolved per call as **settings row → environment
 variable → default**; the settings row is edited under **Admin → Developer
-runtime** and takes effect on the next job, no redeploy. The exceptions are
-`ML_EVALUATIONS_PER_SWEEP`, `ML_EXPLAIN_MAX_ROWS` and `ML_EXPLAIN_TOP_K`, which
-have no Admin field: environment, then default. The four Spark sizes apply
+runtime** and takes effect on the next job, no redeploy. Since R550 that
+includes `ML_EVALUATIONS_PER_SWEEP`, `ML_EXPLAIN_MAX_ROWS` and
+`ML_EXPLAIN_TOP_K`, which used to be environment only; the page shows each
+value in force and whether it came from the page, the environment or the
+default, and a save writes only what was changed. The four Spark sizes apply
 only under `SPARK_PROVIDER=k8s`; a `static` cluster is sized where it runs.
 
 | Setting                                  | Default                      | What it bounds                                                                                                                                                                                                                                                                                                                           |

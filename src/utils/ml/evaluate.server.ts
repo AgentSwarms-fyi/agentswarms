@@ -52,11 +52,9 @@ const EVALUABLE = new Set(["classification", "regression", "forecast"]);
  * A cadence bound rather than a resource cap, and the same shape as the other
  * sweeps (WORKFLOW_RUNS_PER_SWEEP, ETL_PIPELINES_PER_SWEEP): the work is one
  * statement per prediction, so this is about not monopolising a minute.
+ * Admin -> Developer runtime, then ML_EVALUATIONS_PER_SWEEP, then 20 (R550).
  */
-const perSweep = () => {
-  const n = Number(process.env.ML_EVALUATIONS_PER_SWEEP);
-  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 20;
-};
+const perSweep = async () => (await getPlatformResources()).mlEvaluationsPerSweep;
 
 /**
  * A prediction stops being re-measured once it is this old.
@@ -318,6 +316,7 @@ export async function runDueEvaluations(): Promise<{ evaluated: number; failed: 
     .not("outcome_source", "is", null);
   const modelIds = (models ?? []).map((m) => m.id);
   if (!modelIds.length) return { evaluated: 0, failed: 0 };
+  const sweepSize = await perSweep();
 
   const { data: candidates } = await supabaseAdmin
     .from("ml_predictions")
@@ -327,7 +326,7 @@ export async function runDueEvaluations(): Promise<{ evaluated: number; failed: 
     .eq("status", "succeeded")
     .gte("created_at", since)
     .order("created_at", { ascending: false })
-    .limit(perSweep() * 4);
+    .limit(sweepSize * 4);
   if (!candidates?.length) return { evaluated: 0, failed: 0 };
 
   const { data: recent } = await supabaseAdmin
@@ -344,7 +343,7 @@ export async function runDueEvaluations(): Promise<{ evaluated: number; failed: 
   let failed = 0;
   for (const c of candidates) {
     if (measuredLately.has(c.id)) continue;
-    if (evaluated + failed >= perSweep()) break;
+    if (evaluated + failed >= sweepSize) break;
     // The sweep acts as the run's own user, so the evaluation belongs to
     // whoever asked for the prediction rather than to nobody.
     const res = await evaluatePrediction(c.id, c.user_id, "schedule");

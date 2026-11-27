@@ -11,8 +11,22 @@ import { requireSuperadmin } from "@/utils/iam.server";
 import { parseModelSpec } from "@/utils/providers/defaultModel.server";
 import { ensureRuntimeSecret, runtimeSecretConfigured } from "@/utils/notebookRuntime/token.server";
 import { appInContainer, dockerBase, kernelNetwork } from "@/utils/notebookRuntime/docker.server";
+import {
+  ENV_BACKED_SETTINGS,
+  resolvePlatformResources,
+  settingEnvName,
+  settingKey,
+  settingSources,
+  type EnvBackedSetting,
+  type SettingSource,
+} from "@/utils/notebookRuntime/config.server";
+import { servingEnvView, type ServingEnvView } from "@/lib/servingEnv";
+import { auditEvent } from "@/utils/audit.server";
+import { settingsAuditChanges } from "@/lib/runtimeSettingsPatch";
 
 export type NbRuntimeError = { ok: false; error: string };
+export type { EnvBackedSetting, SettingSource } from "@/utils/notebookRuntime/config.server";
+export type { ServingEnvView } from "@/lib/servingEnv";
 
 export type NbRuntimeSettings = {
   server_runtime_enabled: boolean;
@@ -46,6 +60,18 @@ export type NbRuntimeSettings = {
   ml_parallel_min_rows: number;
   ml_fairness_min_ratio: number;
   ml_artifact_max_mb: number;
+  ml_max_deployments_per_user: number;
+  ml_max_deployments_total: number;
+  ml_api_rate_limit_per_min: number;
+  ml_evaluations_per_sweep: number;
+  ml_explain_max_rows: number;
+  ml_explain_top_k: number;
+  ml_explain_batch_max_rows: number;
+  ml_explain_batch_top_k: number;
+  ml_explain_chunk_rows: number;
+  ml_serve_target_rpm_per_replica: number;
+  ml_serve_scale_cooldown_seconds: number;
+  ml_import_max_mb: number;
   gateway_rate_limit_per_min: number;
   gateway_fallback_models: string[];
   gateway_metrics_max_rows: number;
@@ -108,6 +134,18 @@ export type NbRuntimeState = {
    * page shows a per-machine budget for a per-process number.
    */
   host: { cpus: number; totalMemMb: number; workers: number };
+  /**
+   * Where each setting that may come from the page OR the environment takes
+   * its value from (R550), the environment variable behind it, and what it
+   * would be without the value saved here: what Reset puts back.
+   */
+  sources: Record<EnvBackedSetting, SettingSource>;
+  /** Where each would come from without a value saved here: the environment, or built in. */
+  fallbackSources: Record<EnvBackedSetting, SettingSource>;
+  envNames: Record<EnvBackedSetting, string>;
+  fallbacks: Record<EnvBackedSetting, number>;
+  /** Serving and cluster settings only the server's environment sets, read-only here. */
+  serving: ServingEnvView;
 };
 
 /**
@@ -161,6 +199,18 @@ const DEFAULTS: NbRuntimeSettings = {
   ml_parallel_min_rows: 25000,
   ml_fairness_min_ratio: 0.8,
   ml_artifact_max_mb: 512,
+  ml_max_deployments_per_user: 2,
+  ml_max_deployments_total: 10,
+  ml_api_rate_limit_per_min: 60,
+  ml_evaluations_per_sweep: 20,
+  ml_explain_max_rows: 20,
+  ml_explain_top_k: 8,
+  ml_explain_batch_max_rows: 50000,
+  ml_explain_batch_top_k: 3,
+  ml_explain_chunk_rows: 2000,
+  ml_serve_target_rpm_per_replica: 120,
+  ml_serve_scale_cooldown_seconds: 180,
+  ml_import_max_mb: 500,
   gateway_rate_limit_per_min: 60,
   gateway_fallback_models: [],
   gateway_metrics_max_rows: 10000,
@@ -248,6 +298,18 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           ml_parallel_min_rows: row.ml_parallel_min_rows ?? 25000,
           ml_fairness_min_ratio: row.ml_fairness_min_ratio ?? 0.8,
           ml_artifact_max_mb: row.ml_artifact_max_mb ?? 512,
+          ml_max_deployments_per_user: row.ml_max_deployments_per_user ?? 2,
+          ml_max_deployments_total: row.ml_max_deployments_total ?? 10,
+          ml_api_rate_limit_per_min: row.ml_api_rate_limit_per_min ?? 60,
+          ml_evaluations_per_sweep: row.ml_evaluations_per_sweep ?? 20,
+          ml_explain_max_rows: row.ml_explain_max_rows ?? 20,
+          ml_explain_top_k: row.ml_explain_top_k ?? 8,
+          ml_explain_batch_max_rows: row.ml_explain_batch_max_rows ?? 50000,
+          ml_explain_batch_top_k: row.ml_explain_batch_top_k ?? 3,
+          ml_explain_chunk_rows: row.ml_explain_chunk_rows ?? 2000,
+          ml_serve_target_rpm_per_replica: row.ml_serve_target_rpm_per_replica ?? 120,
+          ml_serve_scale_cooldown_seconds: row.ml_serve_scale_cooldown_seconds ?? 180,
+          ml_import_max_mb: row.ml_import_max_mb ?? 500,
           gateway_rate_limit_per_min: row.gateway_rate_limit_per_min ?? 60,
           gateway_fallback_models: row.gateway_fallback_models ?? [],
           gateway_metrics_max_rows: row.gateway_metrics_max_rows ?? 10000,
@@ -283,7 +345,22 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
           spark_executor_mem_mb: row.spark_executor_mem_mb ?? 2048,
           spark_driver_mem_mb: row.spark_driver_mem_mb ?? 2048,
         }
-      : DEFAULTS;
+      : { ...DEFAULTS };
+
+    // FOUND IN R550: a setting not saved here showed its BUILT-IN default,
+    // even when the environment set another value that was in force, and the
+    // page then saved that default over it. Each one shows the value in force
+    // and where it comes from; the page saves only what was changed.
+    const inForce = resolvePlatformResources(row);
+    const withoutPage = resolvePlatformResources(null);
+    const sources = settingSources(row as Record<string, unknown> | null);
+    const envNames = {} as Record<EnvBackedSetting, string>;
+    const fallbacks = {} as Record<EnvBackedSetting, number>;
+    for (const column of ENV_BACKED_SETTINGS) {
+      (settings as Record<string, unknown>)[column] = inForce[settingKey(column)];
+      envNames[column] = settingEnvName(column);
+      fallbacks[column] = withoutPage[settingKey(column)] as number;
+    }
 
     const groups = (groupsRes.data ?? []).map((g) => ({ id: g.id, name: g.name }));
     const users = (usersRes.data?.users ?? []).map((u) => ({ id: u.id, email: u.email ?? null }));
@@ -307,6 +384,11 @@ export const nbRuntimeGetState = createServerFn({ method: "POST" })
       users,
       groups,
       host: hostResources(),
+      sources,
+      fallbackSources: settingSources(null),
+      envNames,
+      fallbacks,
+      serving: servingEnvView(process.env),
     };
   });
 
@@ -343,53 +425,71 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
           .regex(/^\d+(\.\d+)?\s*(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)$/i, "Use a size like 48GB")
           .max(32)
           .optional(),
-        lakehouse_threads: z.number().int().min(1).optional(),
+        lakehouse_threads: z.number().int().min(1).nullable().optional(),
         // ETL throughput.
-        etl_max_concurrent_runs_per_user: z.number().int().min(1).optional(),
-        etl_pipelines_per_sweep: z.number().int().min(1).optional(),
-        ml_train_max_rows: z.number().int().min(1).optional(),
-        ml_train_time_budget_minutes: z.number().int().min(1).optional(),
-        ml_train_mem_limit_mb: z.number().int().min(1).optional(),
-        ml_serve_mem_limit_mb: z.number().int().min(1).optional(),
-        ml_max_concurrent_trainings_per_user: z.number().int().min(1).optional(),
-        ml_predict_max_rows: z.number().int().min(1).optional(),
-        ml_train_gpus: z.number().int().min(0).max(64).optional(),
-        ml_train_workers: z.number().int().min(1).max(64).optional(),
-        ml_drift_alert_psi: z.number().min(0.01).max(5).optional(),
-        ml_decay_alert_ratio: z.number().min(0.01).max(10).optional(),
-        ml_cv_min_holdout_rows: z.number().int().min(50).max(10_000_000).optional(),
-        ml_parallel_min_rows: z.number().int().min(50).max(100_000_000).optional(),
-        ml_fairness_min_ratio: z.number().min(0.01).max(1).optional(),
-        ml_artifact_max_mb: z.number().int().min(1).optional(),
-        gateway_rate_limit_per_min: z.number().int().min(1).max(100000).optional(),
+        etl_max_concurrent_runs_per_user: z.number().int().min(1).nullable().optional(),
+        etl_pipelines_per_sweep: z.number().int().min(1).nullable().optional(),
+        ml_train_max_rows: z.number().int().min(1).nullable().optional(),
+        ml_train_time_budget_minutes: z.number().int().min(1).nullable().optional(),
+        ml_train_mem_limit_mb: z.number().int().min(1).nullable().optional(),
+        ml_serve_mem_limit_mb: z.number().int().min(1).nullable().optional(),
+        ml_max_concurrent_trainings_per_user: z.number().int().min(1).nullable().optional(),
+        ml_predict_max_rows: z.number().int().min(1).nullable().optional(),
+        ml_train_gpus: z.number().int().min(0).max(64).nullable().optional(),
+        ml_train_workers: z.number().int().min(1).max(64).nullable().optional(),
+        ml_drift_alert_psi: z.number().min(0.01).max(5).nullable().optional(),
+        ml_decay_alert_ratio: z.number().min(0.01).max(10).nullable().optional(),
+        ml_cv_min_holdout_rows: z.number().int().min(50).max(10_000_000).nullable().optional(),
+        ml_parallel_min_rows: z.number().int().min(50).max(100_000_000).nullable().optional(),
+        ml_fairness_min_ratio: z.number().min(0.01).max(1).nullable().optional(),
+        ml_artifact_max_mb: z.number().int().min(1).nullable().optional(),
+        ml_max_deployments_per_user: z.number().int().min(1).max(10_000).nullable().optional(),
+        ml_max_deployments_total: z.number().int().min(1).max(100_000).nullable().optional(),
+        ml_api_rate_limit_per_min: z.number().int().min(1).max(1_000_000).nullable().optional(),
+        ml_evaluations_per_sweep: z.number().int().min(1).max(10_000).nullable().optional(),
+        ml_explain_max_rows: z.number().int().min(1).max(100_000).nullable().optional(),
+        ml_explain_top_k: z.number().int().min(1).max(500).nullable().optional(),
+        ml_explain_batch_max_rows: z.number().int().min(1).max(100_000_000).nullable().optional(),
+        ml_explain_batch_top_k: z.number().int().min(1).max(50).nullable().optional(),
+        ml_explain_chunk_rows: z.number().int().min(1).max(1_000_000).nullable().optional(),
+        ml_serve_target_rpm_per_replica: z
+          .number()
+          .int()
+          .min(1)
+          .max(1_000_000)
+          .nullable()
+          .optional(),
+        ml_serve_scale_cooldown_seconds: z.number().int().min(1).max(86_400).nullable().optional(),
+        ml_import_max_mb: z.number().int().min(1).max(4096).nullable().optional(),
+        gateway_rate_limit_per_min: z.number().int().min(1).max(100000).nullable().optional(),
         gateway_fallback_models: z.array(z.string().min(1).max(160)).max(10).optional(),
-        gateway_metrics_max_rows: z.number().int().min(1).max(100_000_000).optional(),
+        gateway_metrics_max_rows: z.number().int().min(1).max(100_000_000).nullable().optional(),
         // A floor below 0.8 stops being a cache and starts being a coin toss;
         // 1 is an exact-meaning match, which is the strictest setting that is
         // still a semantic cache rather than a disabled one.
-        gateway_cache_similarity: z.number().min(0.8).max(1).optional(),
-        gateway_cache_ttl_hours: z.number().int().min(1).max(8760).optional(),
-        gateway_cache_max_temperature: z.number().min(0).max(2).optional(),
-        data_monitors_per_sweep: z.number().int().min(1).max(10000).optional(),
-        data_monitor_anomaly_sigma: z.number().min(0.5).max(20).optional(),
-        sheets_max_cells: z.number().int().min(1000).max(100_000_000).optional(),
-        sheets_page_rows: z.number().int().min(50).max(100_000).optional(),
-        sheets_upload_max_mb: z.number().int().min(1).max(10_000).optional(),
-        sheets_import_max_sheets: z.number().int().min(1).max(10_000).optional(),
-        sheets_export_max_rows: z.number().int().min(100).max(100_000_000).optional(),
-        sheets_version_interval_minutes: z.number().int().min(1).max(10_080).optional(),
-        sheets_versions_max: z.number().int().min(1).max(100_000).optional(),
+        gateway_cache_similarity: z.number().min(0.8).max(1).nullable().optional(),
+        gateway_cache_ttl_hours: z.number().int().min(1).max(8760).nullable().optional(),
+        gateway_cache_max_temperature: z.number().min(0).max(2).nullable().optional(),
+        data_monitors_per_sweep: z.number().int().min(1).max(10000).nullable().optional(),
+        data_monitor_anomaly_sigma: z.number().min(0.5).max(20).nullable().optional(),
+        sheets_max_cells: z.number().int().min(1000).max(100_000_000).nullable().optional(),
+        sheets_page_rows: z.number().int().min(50).max(100_000).nullable().optional(),
+        sheets_upload_max_mb: z.number().int().min(1).max(10_000).nullable().optional(),
+        sheets_import_max_sheets: z.number().int().min(1).max(10_000).nullable().optional(),
+        sheets_export_max_rows: z.number().int().min(100).max(100_000_000).nullable().optional(),
+        sheets_version_interval_minutes: z.number().int().min(1).max(10_080).nullable().optional(),
+        sheets_versions_max: z.number().int().min(1).max(100_000).nullable().optional(),
         // Empty = no model of its own: the instance default model runs it.
         sheets_assist_model: z.string().trim().max(160).optional(),
-        sheets_assist_per_minute: z.number().int().min(1).max(100_000).optional(),
-        sheets_ai_fill_max_rows: z.number().int().min(1).max(10_000_000).optional(),
-        ai_sql_max_calls_per_statement: z.number().int().min(1).max(1000000).optional(),
+        sheets_assist_per_minute: z.number().int().min(1).max(100_000).nullable().optional(),
+        sheets_ai_fill_max_rows: z.number().int().min(1).max(10_000_000).nullable().optional(),
+        ai_sql_max_calls_per_statement: z.number().int().min(1).max(1000000).nullable().optional(),
         // Empty = no model of its own: the instance default model runs it.
         ai_sql_default_model: z.string().trim().max(160).optional(),
-        ai_sql_cache_ttl_days: z.number().int().min(1).max(3650).optional(),
+        ai_sql_cache_ttl_days: z.number().int().min(1).max(3650).nullable().optional(),
         // Empty = no model of its own: the instance default model runs it.
         document_vision_model: z.string().trim().max(160).optional(),
-        document_vision_max_pages: z.number().int().min(1).max(100000).optional(),
+        document_vision_max_pages: z.number().int().min(1).max(100000).nullable().optional(),
         sandbox_tmpfs_mb: z.number().int().min(64).optional(),
         egress_allowlist: z.array(z.string().min(1).max(255)).max(200).optional(),
         pip_allowed: z.boolean().optional(),
@@ -442,12 +542,44 @@ export const nbRuntimeUpdateSettings = createServerFn({ method: "POST" })
     ] as const) {
       if (fields[k] !== undefined && !fields[k]) (fields as Record<string, unknown>)[k] = null;
     }
+    const { data: before } = await supabaseAdmin
+      .from("notebook_runtime_settings")
+      .select("*")
+      .eq("id", true)
+      .maybeSingle();
     const patch = { ...fields, updated_at: new Date().toISOString() };
     const { error } = await supabaseAdmin
       .from("notebook_runtime_settings")
       .update(patch)
       .eq("id", true);
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      // PGRST204: a column the database does not have yet. Only the settings
+      // R550 made editable can hit it, and only when a save changes one.
+      // FOUND IN THE UI TEST: the refusal led with the database's own words.
+      const column = /'([a-z0-9_]+)' column/.exec(error.message)?.[1];
+      return {
+        ok: false,
+        error:
+          error.code === "PGRST204"
+            ? `Nothing was saved: ${column ?? "this setting"} needs migration 20261210000000. Apply the latest migrations (npx supabase db push --remote), then save again.`
+            : error.message,
+      };
+    }
+    // A setting saved on this page used to leave no trace, where the same
+    // value in the environment at least has its deploy's history (R550).
+    const changes = settingsAuditChanges(
+      (before ?? {}) as Record<string, unknown>,
+      fields as Record<string, unknown>,
+    );
+    if (changes.length) {
+      auditEvent({
+        userId: guard.userId,
+        action: "runtime.settings.update",
+        resourceType: "runtime_settings",
+        resourceName: "Developer runtime",
+        detail: { changes },
+      });
+    }
 
     // The allow-list is only meaningful once it reaches the proxy. Report what
     // actually happened rather than implying success — this field used to be

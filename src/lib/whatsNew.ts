@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "ml-settings-in-admin",
+    date: "2026-11-27",
+    title: "Machine-learning settings in Admin",
+    body: "Explanation limits, endpoint autoscaling, the ML API rate limit and import size are now set in Developer runtime, where each setting says if it was saved there, comes from the server, or is built in.",
+    link: { to: "/admin/runtime" },
+    cta: "Open Developer runtime",
+  },
+  {
     id: "missing-inputs",
     date: "2026-11-27",
     title: "Inputs that stop arriving",

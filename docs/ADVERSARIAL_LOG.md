@@ -109,6 +109,23 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-27 — R550: the settings page lied about where a value came from, and wrote over it
+
+**Why this round.** The user asked whether every ML and serving setting can be set from the UI. Ten could only be set in the server's environment, and two had a column but no field. Read as the operator who sets one in `.env` and then opens the page.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A save wrote built-in defaults over the environment's values | S2 | **Found in review.** A setting not saved on the page showed its built-in default even when the environment set another, and the page sent every field on every save, so any save, on any tab, wrote that default into the database, where it wins. Measured on this account: every older ML setting was saved at exactly its default. Now the page shows the value in force and where it comes from, saves only what changed, and Reset clears a saved value. |
+| Settings changes left no trace | S3 | **Found in review.** The same value in the environment has its deploy's history; saved on the page it had none. Now `runtime.settings.update` with old and new values (an address only as changed, a list by its length). |
+| One pending migration's column would fail every setting | S3 | **Found in design.** The settings read named its columns; naming one a migration has not added fails the whole read, and every saved value falls back to the environment at once. Now `select *`; a test holds every resolved name to a real column. |
+| Ten settings env-only, two without a field | S4 | **Found by the user's question.** Explanation and reason-code limits, the accuracy sweep, the API rate limit, endpoint autoscaling, the import cap; the endpoint caps. |
+| A refused save led with the database's words | S4 | **Found in the UI test.** Now it says nothing was saved and which setting needs which migration. |
+
+**Checked and sound.**
+- **Cluster wiring stays in the environment, on purpose**: `ML_SERVING_BACKEND`, `KSERVE_*` and the GPU node rules decide the namespace, service account and image models deploy with; the page shows them read-only and the validator has no field for them (tested).
+- **Before migration 20261210000000** only a save that changes one of the ten is refused; Reset and every other field save (driven).
+- Mutation-checked: 4 of 4 caught (changed-only patch, the environment's source rule, saved-before-env order, the address redaction).
+
 ### 2026-11-27 — R549: an input that stopped arriving read as stable
 
 **Why this round.** Drift measures the values that arrived. A feed that stops sending a field, or a join that starts leaving it empty, leaves a few values that still look like training, while every other row is scored on the value the pipeline fills in for a blank. Read as the person whose model's answers quietly changed.

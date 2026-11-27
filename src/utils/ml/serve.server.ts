@@ -1675,21 +1675,6 @@ export async function resizeKserveEndpoint(modelId: string): Promise<string | nu
 }
 
 /**
- * How hard one copy is expected to work, and how reluctant the scaler is.
- *
- * Env knobs rather than settings rows, like the two explanation limits they
- * sit beside: these describe the shape of the machine rather than a policy an
- * owner picks per model, and the per-model policy (min, max) lives on the
- * deployment where an owner can see it.
- */
-const envCount = (name: string, fallback: number) => {
-  const n = Number(process.env[name]);
-  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : fallback;
-};
-const TARGET_RPM_PER_REPLICA = envCount("ML_SERVE_TARGET_RPM_PER_REPLICA", 120);
-const SCALE_COOLDOWN_SECONDS = envCount("ML_SERVE_SCALE_COOLDOWN_SECONDS", 180);
-
-/**
  * Resize every endpoint to the load it is actually carrying.
  *
  * Runs on the platform clock beside the idle reaper. The decision itself is in
@@ -1703,6 +1688,12 @@ const SCALE_COOLDOWN_SECONDS = envCount("ML_SERVE_SCALE_COOLDOWN_SECONDS", 180);
  * total would read a month of traffic as if it had all arrived this minute.
  */
 export async function autoscaleDeployments(): Promise<{ scaled: number }> {
+  // How hard one copy is expected to work, and how reluctant the scaler is:
+  // the operator's, read each pass (R550: Admin -> Developer runtime, then
+  // ML_SERVE_TARGET_RPM_PER_REPLICA and ML_SERVE_SCALE_COOLDOWN_SECONDS, then
+  // 120 and 180). The per-model policy (min, max) lives on the deployment,
+  // where its owner can see it.
+  const limits = await getPlatformResources();
   const { data: rows } = await supabaseAdmin
     .from("ml_deployments")
     .select("*")
@@ -1763,11 +1754,11 @@ export async function autoscaleDeployments(): Promise<{ scaled: number }> {
       replicasStarting: starting.length,
       min: dep.min_replicas,
       max: dep.max_replicas,
-      targetPerReplica: TARGET_RPM_PER_REPLICA,
+      targetPerReplica: limits.mlServeTargetRpmPerReplica,
       secondsSinceChange: dep.last_scaled_at
         ? Math.max(0, (now.getTime() - new Date(dep.last_scaled_at).getTime()) / 1000)
         : Number.POSITIVE_INFINITY,
-      cooldownSeconds: SCALE_COOLDOWN_SECONDS,
+      cooldownSeconds: limits.mlServeScaleCooldownSeconds,
       // Idle since it was last USED, or since it STARTED if it never was.
       //
       // FOUND LIVE: a copy that has answered nothing has last_used_at null, so

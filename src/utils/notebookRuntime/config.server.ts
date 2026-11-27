@@ -4,6 +4,7 @@
 import os from "node:os";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { Database } from "@/integrations/supabase/types";
 import { runtimeSecretConfigured } from "./token.server";
 
 export type RuntimeBackend = "docker" | "k8s" | "ecs" | "e2b";
@@ -88,6 +89,22 @@ export type PlatformResourceSettings = {
   mlMaxDeploymentsPerUser: number;
   /** Warm inference endpoints this instance may hold open. */
   mlMaxDeploymentsTotal: number;
+  /** Calls a minute one ML API key may make (/api/ml/*). R550: settable on the page. */
+  mlApiRateLimitPerMin: number;
+  /** Prediction runs one accuracy sweep re-measures. */
+  mlEvaluationsPerSweep: number;
+  /** Rows one request may have explained, and the features listed for each. */
+  mlExplainMaxRows: number;
+  mlExplainTopK: number;
+  /** Rows a batch may have reason codes written for, the codes per row, and rows explained together. */
+  mlExplainBatchMaxRows: number;
+  mlExplainBatchTopK: number;
+  mlExplainChunkRows: number;
+  /** Requests a minute one copy of a warm endpoint is sized for, and seconds between two resizes. */
+  mlServeTargetRpmPerReplica: number;
+  mlServeScaleCooldownSeconds: number;
+  /** Largest MLflow model (MB) an import accepts, 1 to 4096. */
+  mlImportMaxMb: number;
   /** Calls a minute one AI-gateway key may make unless it sets its own. */
   gatewayRateLimitPerMin: number;
   /** provider/model entries every gateway call may fall back to, after the key's chain. */
@@ -177,15 +194,132 @@ function envNumZeroOk(name: string): number | undefined {
   return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
+/** An import cap is 1 to 4096 MB; anything else is unset. */
+const importMb = (n: number | undefined) => (n !== undefined && n <= 4096 ? n : undefined);
+
+/**
+ * The settings above that an operator may set on the page OR in the
+ * environment, by column (R550). The page shows each one's value in force and
+ * where it came from, so a value set in .env is never shown as the built-in
+ * default — and, because the page saves only what was changed, never written
+ * over by a save that did not touch it.
+ */
+export const ENV_BACKED_SETTINGS = [
+  "lakehouse_threads",
+  "etl_max_concurrent_runs_per_user",
+  "etl_pipelines_per_sweep",
+  "ml_train_max_rows",
+  "ml_train_time_budget_minutes",
+  "ml_train_mem_limit_mb",
+  "ml_serve_mem_limit_mb",
+  "ml_max_concurrent_trainings_per_user",
+  "ml_predict_max_rows",
+  "ml_train_gpus",
+  "ml_train_workers",
+  "ml_drift_alert_psi",
+  "ml_decay_alert_ratio",
+  "ml_cv_min_holdout_rows",
+  "ml_parallel_min_rows",
+  "ml_fairness_min_ratio",
+  "ml_artifact_max_mb",
+  "ml_max_deployments_per_user",
+  "ml_max_deployments_total",
+  "ml_api_rate_limit_per_min",
+  "ml_evaluations_per_sweep",
+  "ml_explain_max_rows",
+  "ml_explain_top_k",
+  "ml_explain_batch_max_rows",
+  "ml_explain_batch_top_k",
+  "ml_explain_chunk_rows",
+  "ml_serve_target_rpm_per_replica",
+  "ml_serve_scale_cooldown_seconds",
+  "ml_import_max_mb",
+  "gateway_rate_limit_per_min",
+  "gateway_metrics_max_rows",
+  "gateway_cache_similarity",
+  "gateway_cache_ttl_hours",
+  "gateway_cache_max_temperature",
+  "data_monitors_per_sweep",
+  "data_monitor_anomaly_sigma",
+  "sheets_max_cells",
+  "sheets_page_rows",
+  "sheets_upload_max_mb",
+  "sheets_import_max_sheets",
+  "sheets_export_max_rows",
+  "sheets_version_interval_minutes",
+  "sheets_versions_max",
+  "sheets_assist_per_minute",
+  "sheets_ai_fill_max_rows",
+  "ai_sql_max_calls_per_statement",
+  "ai_sql_cache_ttl_days",
+  "document_vision_max_pages",
+] as const;
+export type EnvBackedSetting = (typeof ENV_BACKED_SETTINGS)[number];
+
+/** The environment variable behind a setting: its column upper-cased, gateway ones prefixed AI_. */
+export function settingEnvName(column: EnvBackedSetting): string {
+  const name = column.toUpperCase();
+  return name.startsWith("GATEWAY_") ? `AI_${name}` : name;
+}
+
+/** The resolved field a column feeds: its name in camelCase. */
+export function settingKey(column: EnvBackedSetting): keyof PlatformResourceSettings {
+  return column.replace(/_([a-z])/g, (_, c: string) =>
+    c.toUpperCase(),
+  ) as keyof PlatformResourceSettings;
+}
+
+export type SettingSource = "saved" | "env" | "default";
+
+/** The one setting whose 0 in the environment is a value the resolver takes. */
+const ZERO_IS_A_VALUE = new Set<EnvBackedSetting>(["gateway_cache_max_temperature"]);
+
+/**
+ * Where each setting's value in force comes from: saved on the page, the
+ * environment, or the built-in default. An environment value only counts when
+ * it is a number the resolver above would take.
+ */
+export function settingSources(
+  row: Record<string, unknown> | null,
+  env: NodeJS.ProcessEnv = process.env,
+): Record<EnvBackedSetting, SettingSource> {
+  const out = {} as Record<EnvBackedSetting, SettingSource>;
+  for (const column of ENV_BACKED_SETTINGS) {
+    const saved = row?.[column];
+    const raw = env[settingEnvName(column)]?.trim();
+    const n = raw ? Number(raw) : Number.NaN;
+    out[column] =
+      saved !== null && saved !== undefined
+        ? "saved"
+        : Number.isFinite(n) && (n > 0 || (n === 0 && ZERO_IS_A_VALUE.has(column)))
+          ? "env"
+          : "default";
+  }
+  return out;
+}
+
 export async function getPlatformResources(): Promise<PlatformResourceSettings> {
+  // "*", not a column list (R550): a list naming a column a pending migration
+  // adds fails the whole read, and every saved value then silently fell back
+  // to the environment. "*" returns what exists; a missing column is unset.
   const { data } = await supabaseAdmin
     .from("notebook_runtime_settings")
-    .select(
-      "lakehouse_memory_limit, lakehouse_threads, etl_max_concurrent_runs_per_user, etl_pipelines_per_sweep, ml_train_max_rows, ml_train_time_budget_minutes, ml_train_mem_limit_mb, ml_serve_mem_limit_mb, ml_max_concurrent_trainings_per_user, ml_predict_max_rows, ml_train_gpus, ml_train_workers, ml_drift_alert_psi, ml_decay_alert_ratio, ml_fairness_min_ratio, ml_cv_min_holdout_rows, ml_parallel_min_rows, ml_artifact_max_mb, ml_max_deployments_per_user, ml_max_deployments_total, gateway_rate_limit_per_min, gateway_fallback_models, gateway_metrics_max_rows, gateway_cache_similarity, gateway_cache_ttl_hours, gateway_cache_max_temperature, data_monitors_per_sweep, data_monitor_anomaly_sigma, sheets_max_cells, sheets_page_rows, sheets_upload_max_mb, sheets_import_max_sheets, sheets_export_max_rows, sheets_version_interval_minutes, sheets_versions_max, sheets_assist_model, sheets_assist_per_minute, sheets_ai_fill_max_rows, ai_sql_max_calls_per_statement, ai_sql_default_model, ai_sql_cache_ttl_days, document_vision_model, document_vision_max_pages",
-    )
+    .select("*")
     .eq("id", true)
     .maybeSingle();
+  return resolvePlatformResources(data);
+}
 
+type SettingsRow = Database["public"]["Tables"]["notebook_runtime_settings"]["Row"];
+
+/**
+ * The settings in force for a stored row: saved, then the environment, then
+ * built in. With no row, what they would be without anything saved on the
+ * page, which the page shows beside a saved value it may reset (R550).
+ */
+export function resolvePlatformResources(
+  data: Partial<SettingsRow> | null | undefined,
+): PlatformResourceSettings {
   return {
     lakehouseMemoryLimit:
       data?.lakehouse_memory_limit?.trim() || process.env.LAKEHOUSE_MEMORY_LIMIT?.trim() || "2GB",
@@ -241,6 +375,31 @@ export async function getPlatformResources(): Promise<PlatformResourceSettings> 
       positive(data?.ml_max_deployments_per_user) ?? envInt("ML_MAX_DEPLOYMENTS_PER_USER") ?? 2,
     mlMaxDeploymentsTotal:
       positive(data?.ml_max_deployments_total) ?? envInt("ML_MAX_DEPLOYMENTS_TOTAL") ?? 10,
+    // R550: these were read from the environment alone, so changing one meant
+    // a redeploy. Saved on the page they win; unset, the environment, then the
+    // built-in value, exactly as before.
+    mlApiRateLimitPerMin:
+      positive(data?.ml_api_rate_limit_per_min) ?? envInt("ML_API_RATE_LIMIT_PER_MIN") ?? 60,
+    mlEvaluationsPerSweep:
+      positive(data?.ml_evaluations_per_sweep) ?? envInt("ML_EVALUATIONS_PER_SWEEP") ?? 20,
+    mlExplainMaxRows: positive(data?.ml_explain_max_rows) ?? envInt("ML_EXPLAIN_MAX_ROWS") ?? 20,
+    mlExplainTopK: positive(data?.ml_explain_top_k) ?? envInt("ML_EXPLAIN_TOP_K") ?? 8,
+    mlExplainBatchMaxRows:
+      positive(data?.ml_explain_batch_max_rows) ?? envInt("ML_EXPLAIN_BATCH_MAX_ROWS") ?? 50_000,
+    mlExplainBatchTopK:
+      positive(data?.ml_explain_batch_top_k) ?? envInt("ML_EXPLAIN_BATCH_TOP_K") ?? 3,
+    mlExplainChunkRows:
+      positive(data?.ml_explain_chunk_rows) ?? envInt("ML_EXPLAIN_CHUNK_ROWS") ?? 2000,
+    mlServeTargetRpmPerReplica:
+      positive(data?.ml_serve_target_rpm_per_replica) ??
+      envInt("ML_SERVE_TARGET_RPM_PER_REPLICA") ??
+      120,
+    mlServeScaleCooldownSeconds:
+      positive(data?.ml_serve_scale_cooldown_seconds) ??
+      envInt("ML_SERVE_SCALE_COOLDOWN_SECONDS") ??
+      180,
+    mlImportMaxMb:
+      importMb(positive(data?.ml_import_max_mb)) ?? importMb(envInt("ML_IMPORT_MAX_MB")) ?? 500,
     gatewayRateLimitPerMin:
       positive(data?.gateway_rate_limit_per_min) ?? envInt("AI_GATEWAY_RATE_LIMIT_PER_MIN") ?? 60,
     gatewayMetricsMaxRows:

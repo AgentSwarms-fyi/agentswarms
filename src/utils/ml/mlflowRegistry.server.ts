@@ -258,7 +258,7 @@ export async function importFromMlflowServer(args: {
     const parsed = readMlmodel(new TextDecoder().decode(mlmodel));
     if (!parsed.ok) return { ok: false, status: 400, error: parsed.error };
     const file = parsed.plan.modelFile;
-    const bytes = await mlflowDownload(c.conn, path, file, importMaxBytes());
+    const bytes = await mlflowDownload(c.conn, path, file, await importMaxBytes());
 
     // The two files, as the zip import takes them: it checks them again.
     const zip = zipSync({

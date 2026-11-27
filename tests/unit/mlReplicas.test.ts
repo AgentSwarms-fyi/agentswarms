@@ -182,9 +182,13 @@ describe("the scaler measures rather than guesses", () => {
     );
   });
 
-  it("every limit is an env knob with a default", () => {
-    expect(SERVE).toContain('envCount("ML_SERVE_TARGET_RPM_PER_REPLICA", 120)');
-    expect(SERVE).toContain('envCount("ML_SERVE_SCALE_COOLDOWN_SECONDS", 180)');
+  it("every limit is a setting with a default", () => {
+    // R550: Admin -> Developer runtime, then the env, then the default.
+    const config = readFileSync("src/utils/notebookRuntime/config.server.ts", "utf8");
+    expect(config).toContain('envInt("ML_SERVE_TARGET_RPM_PER_REPLICA") ??');
+    expect(config).toContain('envInt("ML_SERVE_SCALE_COOLDOWN_SECONDS") ??');
+    expect(SERVE).toContain("targetPerReplica: limits.mlServeTargetRpmPerReplica,");
+    expect(SERVE).toContain("cooldownSeconds: limits.mlServeScaleCooldownSeconds,");
   });
 });
 

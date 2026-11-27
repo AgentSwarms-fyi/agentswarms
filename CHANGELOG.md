@@ -16,6 +16,16 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261210000000`** (R550) to save the newly editable
+  machine-learning settings under Admin → Developer runtime: it adds ten
+  nullable columns to `notebook_runtime_settings`, and NULL keeps today's
+  behaviour (the environment variable, then the default). Until then those
+  fields read their values but a save that changes one is refused; every
+  other setting saves as before.
+- **Check Admin → Developer runtime once after upgrading** (R550). Each field
+  now says where its value comes from. If a value set in `.env` shows as
+  "Saved here", an earlier save on that page wrote the old built-in default
+  over it: press Reset to put the environment's value back.
 - **Apply migration `20261209000000`** (R549) so the hourly live-traffic
   check can keep and alert on missing inputs: it adds `missing` and
   `missing_alerted_at` to `ml_traffic_checks`. Until then a batch run is
@@ -328,6 +338,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Machine-learning settings in the UI** (R550). The explanation and
+  reason-code limits, the accuracy sweep, the ML API rate limit, endpoint
+  autoscaling, the MLflow import cap and the two endpoint caps are edited
+  under Admin → Developer runtime, where they could only be set in `.env`;
+  a value saved there wins, as for every other setting. Each field says
+  whether its value was saved on the page, comes from the environment (and
+  which variable) or is built in; a save writes only what was changed, Reset
+  clears a saved value, and every change is audited as
+  `runtime.settings.update`. Serving and cluster wiring (`ML_SERVING_BACKEND`,
+  `KSERVE_*`, the GPU node rules) stays in the environment and is shown
+  read-only. The settings read is `select *`, so a column a pending
+  migration adds can no longer fail the whole read.
 - **Missing inputs** (R549). Drift measures the values that arrived, so a
   feed that stopped sending a field read as stable while every row was scored
   on a filled-in value. Each feature is now counted for how often it arrives

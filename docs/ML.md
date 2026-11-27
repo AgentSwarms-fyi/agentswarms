@@ -2010,6 +2010,34 @@ objects; `run.sh app-env` writes the settings for a dev server outside the
 cluster; and `run.sh load` drives a deployed endpoint hard enough to watch the
 HPA add pods and take them away again.
 
+### What hardware serving needs
+
+Ordinary CPU nodes: general-purpose or compute-optimised instances, with
+Arm (Graviton and its equivalents) usually the cheapest per prediction. Every
+model the platform trains or imports is a classical model on table rows —
+scikit-learn pipelines, LightGBM and XGBoost — and scoring a row is a few
+tree walks or a dot product, microseconds of work. Most of a request's time is
+the HTTP call and building the frame, not the model, so more load is met with
+more copies (above, or KServe's autoscaler), not bigger chips.
+
+- **Memory is what runs out first.** Each copy holds the Python ML stack and
+  one fitted model; size nodes and `ml_serve_mem_limit_mb` (or
+  `KSERVE_MEMORY_*`) for that.
+- **GPUs do not help these models serve.** They pay off for training (Training
+  GPUs, XGBoost) and for scoring very large batches at once, not for answering
+  requests a few rows at a time.
+- **Inference accelerators** (AWS Inferentia and Trainium, and their kin) run
+  deep neural networks compiled for them. They cannot run tree models or
+  scikit-learn at all, and they exist on one cloud only, which would break the
+  one KServe setup that runs on all four.
+
+Accelerators become worth it only if the platform hosts deep-learning models
+itself — its own language or embedding models instead of calling providers
+through the gateway, or image and audio models. The first step then is an
+NVIDIA GPU node pool, which every cloud's Kubernetes offers, with KServe's
+LLM runtimes; a cloud's own inference chip is a later cost saving for one
+high-volume model that compiles to it.
+
 ### Trying a version on real traffic
 
 A new version is normally adopted by **switching** to it. Which means the
@@ -2387,6 +2415,27 @@ with the decision id.
 Every limit resolves **settings row → environment variable → default** and
 is edited under **Admin → Developer runtime**; nothing in the code caps
 them. A large VM or a Kubernetes node pool is allowed to use itself.
+
+Since R550 that includes the ones that used to be environment only: the
+explanation and reason-code limits (`ML_EXPLAIN_*`), the accuracy sweep
+(`ML_EVALUATIONS_PER_SWEEP`), the API rate limit, endpoint autoscaling
+(`ML_SERVE_TARGET_RPM_PER_REPLICA`, `ML_SERVE_SCALE_COOLDOWN_SECONDS`), the
+MLflow import cap (`ML_IMPORT_MAX_MB`) and the two endpoint caps, which had a
+column and no field.
+
+- **Each field says where its value comes from:** saved on the page, the
+  server's environment (naming the variable), or built in. Before, a setting
+  not saved on the page showed its built-in default even when the environment
+  set another, and a save on any tab wrote that default over it.
+- **A save writes only what you changed.** **Reset** clears a saved value, so
+  the environment's, or the built-in one, is in force again.
+- **Changes are audited** as `runtime.settings.update`, each with its old and
+  new value (a URL only as "changed").
+- **Serving and cluster wiring stays in the environment**, shown read-only on
+  the page: `ML_SERVING_BACKEND`, the `KSERVE_*` settings and the GPU node
+  rules decide which namespace, service account and image models are deployed
+  with, so they are set with the cluster (the installer, Helm or Terraform),
+  not by an admin login.
 
 | Setting                                | Default   | What it bounds                                         |
 | -------------------------------------- | --------- | ------------------------------------------------------ |

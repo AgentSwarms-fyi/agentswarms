@@ -224,8 +224,12 @@ describe("settings", () => {
       'mlDriftAlertPsi: positiveNum(data?.ml_drift_alert_psi) ?? envNum("ML_DRIFT_ALERT_PSI") ?? 0.25,',
     );
     const admin = rd("src/utils/notebookRuntimeAdmin.functions.ts");
-    expect(admin).toContain("ml_train_gpus: z.number().int().min(0).max(64).optional(),");
-    expect(admin).toContain("ml_drift_alert_psi: z.number().min(0.01).max(5).optional(),");
+    expect(admin).toContain(
+      "ml_train_gpus: z.number().int().min(0).max(64).nullable().optional(),",
+    );
+    expect(admin).toContain(
+      "ml_drift_alert_psi: z.number().min(0.01).max(5).nullable().optional(),",
+    );
     const tab = rd("src/components/admin/RuntimeTab.tsx");
     expect(tab).toContain('set("ml_train_gpus", n)');
     expect(tab).toContain('set("ml_drift_alert_psi", n)');

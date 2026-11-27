@@ -137,7 +137,8 @@ function MlServingPage() {
       <P>
         The platform clock measures the endpoint&apos;s request rate — the change in its counter
         between two readings, not a sample — and compares it with{" "}
-        <C>ML_SERVE_TARGET_RPM_PER_REPLICA</C> (120), the load one copy is sized for.
+        <C>ML_SERVE_TARGET_RPM_PER_REPLICA</C> (120), the load one copy is sized for. It and the
+        cooldown below are set under Admin → Developer runtime, or in the environment.
       </P>
       <P>
         <strong>Adding is immediate.</strong> A queue is the thing a warm endpoint exists to
@@ -281,6 +282,40 @@ function MlServingPage() {
         cert-manager, metrics-server, KServe and the chart&apos;s serving objects, and{" "}
         <C>run.sh load</C> drives a deployed endpoint hard enough to watch the HPA add pods and take
         them away again. The script&apos;s header has the steps.
+      </P>
+      <P>
+        Where models are served (<C>ML_SERVING_BACKEND</C>) and the <C>KSERVE_*</C> settings stay in
+        the server&apos;s environment: they decide which namespace, service account and image models
+        are deployed with, so they are set with the cluster, not from a page. Admin → Developer
+        runtime shows them read-only, with the values in force.
+      </P>
+
+      <H3 id="hardware">What hardware serving needs</H3>
+      <P>
+        Ordinary CPU nodes: general-purpose or compute-optimised instances, Arm usually the cheapest
+        per prediction. Every model the platform serves is a classical model on table rows
+        (scikit-learn, LightGBM, XGBoost), and scoring a row is microseconds of work: most of a
+        request&apos;s time is the HTTP call and building the frame. More load is met with more
+        copies, not bigger chips.
+      </P>
+      <UL>
+        <li>
+          <strong>Memory runs out first:</strong> each copy holds the ML stack and one fitted model.
+        </li>
+        <li>
+          <strong>GPUs do not help these models serve.</strong> They pay off for training and for
+          very large batches scored at once.
+        </li>
+        <li>
+          <strong>Inference accelerators</strong> such as AWS Inferentia and Trainium run deep
+          neural networks compiled for them. They cannot run tree models at all, and they exist on
+          one cloud only.
+        </li>
+      </UL>
+      <P>
+        They become worth it only if the platform hosts deep-learning models itself (its own
+        language, embedding, image or audio models). The first step then is an NVIDIA GPU node pool,
+        which every cloud&apos;s Kubernetes offers, with KServe&apos;s LLM runtimes.
       </P>
 
       <H3 id="shadow">Trying a version on real traffic</H3>

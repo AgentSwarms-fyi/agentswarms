@@ -94,11 +94,10 @@ describe("an empty join is an error, not a score", () => {
 describe("the threshold reaches the code that reads it", () => {
   it("is selected from the settings row, not only declared", () => {
     // The silent failure this whole describe exists for.
-    const select = CONFIG.slice(CONFIG.indexOf("lakehouse_memory_limit"));
-    expect(
-      select.slice(0, select.indexOf('"')),
-      "ml_decay_alert_ratio missing from the settings SELECT — the admin value would never apply",
-    ).toContain("ml_decay_alert_ratio");
+    // Since R550 the whole row is read (mlServingLimits.test.ts holds every
+    // resolved name to a real column), so naming it in the resolver is enough.
+    expect(CONFIG).toContain('.select("*")');
+    expect(CONFIG).toContain("positiveNum(data?.ml_decay_alert_ratio)");
   });
 
   it("falls back through the row, then the env, then a default", () => {

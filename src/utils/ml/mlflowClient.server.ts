@@ -254,7 +254,7 @@ export async function mlflowDownload(
     if (total > maxBytes) {
       await reader.cancel().catch(() => {});
       throw new MlflowError(
-        `${file} is larger than the ${Math.round(maxBytes / 1048576)} MB import limit (ML_IMPORT_MAX_MB).`,
+        `${file} is larger than the ${Math.round(maxBytes / 1048576)} MB import limit (Admin -> Developer runtime, or ML_IMPORT_MAX_MB).`,
       );
     }
     chunks.push(value);

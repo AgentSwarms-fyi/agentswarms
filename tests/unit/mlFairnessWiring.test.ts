@@ -54,12 +54,11 @@ describe("the measurement", () => {
 });
 
 describe("the threshold reaches the code that reads it", () => {
-  it("is in the settings SELECT list, not only declared", () => {
-    const select = CONFIG.slice(CONFIG.indexOf("lakehouse_memory_limit"));
-    expect(
-      select.slice(0, select.indexOf('"')),
-      "ml_fairness_min_ratio missing from the SELECT — the admin value would never apply",
-    ).toContain("ml_fairness_min_ratio");
+  it("is read from the settings row, not only declared", () => {
+    // Since R550 the whole row is read (mlServingLimits.test.ts holds every
+    // resolved name to a real column), so naming it in the resolver is enough.
+    expect(CONFIG).toContain('.select("*")');
+    expect(CONFIG).toContain("positiveNum(data?.ml_fairness_min_ratio)");
   });
 
   it("defaults to four fifths through row, env, then constant", () => {

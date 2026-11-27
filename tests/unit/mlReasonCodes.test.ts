@@ -157,9 +157,9 @@ describe("the codes become columns of the scored table", () => {
 describe("the cost is refused up front, not discovered halfway", () => {
   it("the cap is checked against the count the batch already pays for", () => {
     const fn = API.slice(API.indexOf("export async function startBatchPrediction"));
-    expect(fn).toContain("if (args.explain && rows > ML_EXPLAIN_BATCH_MAX_ROWS)");
+    expect(fn).toContain("if (args.explain && rows > r.mlExplainBatchMaxRows)");
     // Before a sandbox is started, so nothing is spent finding out.
-    expect(fn.indexOf("ML_EXPLAIN_BATCH_MAX_ROWS")).toBeLessThan(
+    expect(fn.indexOf("r.mlExplainBatchMaxRows")).toBeLessThan(
       fn.indexOf("const started = await startPrediction("),
     );
   });
@@ -171,17 +171,19 @@ describe("the cost is refused up front, not discovered halfway", () => {
     expect(fn).toContain("Narrow the rows with a filter");
   });
 
-  it("every limit is an env knob with a default, not a hard cap", () => {
-    expect(PREDICT).toContain('envCount("ML_EXPLAIN_BATCH_MAX_ROWS", 50_000)');
-    expect(PREDICT).toContain('envCount("ML_EXPLAIN_BATCH_TOP_K", 3)');
-    expect(PREDICT).toContain('envCount("ML_EXPLAIN_CHUNK_ROWS", 2000)');
+  it("every limit is a setting with a default, not a hard cap", () => {
+    // R550: Admin -> Developer runtime, then the env, then the default.
+    const config = readFileSync("src/utils/notebookRuntime/config.server.ts", "utf8");
+    expect(config).toContain('envInt("ML_EXPLAIN_BATCH_MAX_ROWS") ?? 50_000');
+    expect(config).toContain('envInt("ML_EXPLAIN_BATCH_TOP_K") ?? 3');
+    expect(config).toContain('envInt("ML_EXPLAIN_CHUNK_ROWS") ?? 2000');
   });
 
   it("a batch asks for fewer reasons than the detail view, because each is two columns", () => {
     expect(PREDICT).toContain(
-      'explain_top_k: b.prediction.kind === "batch" ? ML_EXPLAIN_BATCH_TOP_K : ML_EXPLAIN_TOP_K',
+      'explain_top_k: b.prediction.kind === "batch" ? limits.mlExplainBatchTopK : limits.mlExplainTopK',
     );
-    expect(PREDICT).toContain("explain_chunk_rows: ML_EXPLAIN_CHUNK_ROWS");
+    expect(PREDICT).toContain("explain_chunk_rows: limits.mlExplainChunkRows");
   });
 });
 

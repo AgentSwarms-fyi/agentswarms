@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-27 — R550: machine-learning settings in Admin
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the superadmin, in a fronted tab, before migration 20261210000000 was applied. A read-only query first: every older ML setting was saved in the database at exactly its built-in value, and the container sets no ML variable, the mark of an earlier whole-form save writing the defaults into every column.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Admin → Developer runtime | the page | "Everything on every tab is saved": showing the values in force made no false change |
+| Machine learning tab | every field | the older fields read "Saved here · Reset to the built-in …", matching the database; the endpoint caps and the ten new fields read "Built in"; new sections Serving, Explanations and reason codes, API, imports and accuracy checks |
+| Same | Set in the server's environment | ML_SERVING_BACKEND sandbox, the two GPU node rules (none), each "built in", with the sentence on why they are set with the cluster |
+| Features per explanation | 8 → 9, Save | refused, the edit kept and still unsaved, no audit row; the message led with the database's own words (fixed: "Nothing was saved: ml_explain_top_k needs migration 20261210000000 …") |
+| Same | back to 8 | "Everything on every tab is saved": only real differences count |
+| Fairness review threshold | **Reset**, Save | "Reset on save: the built-in 0.8", then **Runtime settings saved**; the field reads "Built in". Read-only: the column is NULL, the drift threshold beside it untouched, and one `runtime.settings.update` row, `ml_fairness_min_ratio` 0.8 → null |
+| Same | the wording | "the built-in 2000000" unformatted, and an autoscale hint pointing at "KSERVE_SCALE_TARGET below", which is only below with KServe on (both fixed) |
+| After the fixes (stack rebuilt) | the page, and the refused save again | "Reset to the built-in 2,000,000"; the hint names KSERVE_SCALE_TARGET "in the server's environment"; the refusal reads "Nothing was saved: ml_explain_top_k needs migration 20261210000000. Apply the latest migrations (npx supabase db push --remote), then save again."; set back to 8, nothing pending |
+
 ## 2026-11-27 — R549: inputs that stop arriving
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab, before migration 20261209000000 was applied. No training table on this account had ever held an empty value (a read-only query over every version's distribution), so the round made one: `analytics.r549_missing_inputs_test`, a copy of `revenue_facts` with `region` emptied in every row and `net_usd` in 353 of 836 (42%), made in the Lakehouse SQL editor and left for the owner to delete.

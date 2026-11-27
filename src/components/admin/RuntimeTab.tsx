@@ -42,10 +42,14 @@ import {
   nbRuntimePreflight,
   nbRuntimeRemoveGrant,
   nbRuntimeUpdateSettings,
+  type EnvBackedSetting,
   type NbRuntimeSettings,
   type NbRuntimeState,
   type PreflightCheck,
+  type ServingEnvView,
+  type SettingSource,
 } from "@/utils/notebookRuntimeAdmin.functions";
+import { settingsPatch } from "@/lib/runtimeSettingsPatch";
 import { reportFailure } from "@/lib/silentFailureNet";
 import { RUNTIME_TABS } from "./runtimeTabs";
 import { RuntimeTabId } from "./runtimeTabs";
@@ -79,6 +83,89 @@ function refusalMessage(e: unknown): string {
   return raw || "The settings could not be saved";
 }
 
+/** Where a setting's value comes from, as a field says it (R550). */
+type FieldSource = {
+  source: SettingSource;
+  envName: string;
+  /** The value without the one saved here: what Reset puts back. */
+  fallback: number;
+  /** Reset was pressed and is not saved yet. */
+  resetPending: boolean;
+  onReset: () => void;
+};
+
+function SourceLine({ s, fallbackFrom }: { s: FieldSource; fallbackFrom: "env" | "default" }) {
+  // FOUND IN THE UI TEST (R550): "the built-in 2000000", unformatted.
+  const n = s.fallback.toLocaleString();
+  const back = fallbackFrom === "env" ? `${n} from ${s.envName}` : `the built-in ${n}`;
+  if (s.resetPending) {
+    return <p className="text-[10px] text-amber-700 dark:text-amber-400">Reset on save: {back}</p>;
+  }
+  if (s.source === "saved") {
+    return (
+      <p className="text-[10px] text-muted-foreground">
+        Saved here ·{" "}
+        <button
+          type="button"
+          onClick={s.onReset}
+          className="underline underline-offset-2 hover:text-foreground"
+        >
+          Reset
+        </button>{" "}
+        to {back}
+      </p>
+    );
+  }
+  return (
+    <p className="text-[10px] text-muted-foreground">
+      {s.source === "env" ? `From ${s.envName} in the server's environment` : "Built in"}
+    </p>
+  );
+}
+
+/**
+ * Serving and cluster settings only the server's environment sets (R550):
+ * shown with the value in force, never edited here.
+ */
+function ServingEnvPanel({ view }: { view: ServingEnvView }) {
+  return (
+    <div className="space-y-2 rounded-lg border border-border/60 p-3">
+      <p className="text-sm font-medium">Set in the server&apos;s environment</p>
+      <p className="text-xs text-muted-foreground">
+        Where models are served, and which nodes a GPU sandbox lands on. These decide the Kubernetes
+        namespace, service account and image the app deploys with, so they are set with the cluster
+        by the installer, Helm or Terraform, not on this page: change them in the server&apos;s
+        environment and restart.
+        {view.backend === "sandbox"
+          ? " Warm endpoints run as sandboxes; ML_SERVING_BACKEND=kserve serves them on KServe."
+          : ""}
+      </p>
+      {view.problems.length ? (
+        <ul className="list-disc space-y-0.5 pl-4 text-xs text-destructive">
+          {view.problems.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <tbody>
+            {view.rows.map((r) => (
+              <tr key={r.name} className="border-t border-border/60">
+                <td className="py-1 pr-3 font-mono text-[11px]">{r.name}</td>
+                <td className="break-all py-1 pr-3">{r.value}</td>
+                <td className="whitespace-nowrap py-1 text-muted-foreground">
+                  {r.fromEnv ? "set" : "built in"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function NumberField({
   label,
   value,
@@ -86,6 +173,7 @@ function NumberField({
   hint,
   warn,
   step,
+  source,
 }: {
   label: string;
   value: number;
@@ -95,6 +183,8 @@ function NumberField({
   step?: number;
   /** Shown when the value exceeds what this host reports — advice, not a block. */
   warn?: string | null;
+  /** For a setting the server's environment may also set: where its value comes from. */
+  source?: FieldSource & { fallbackFrom: "env" | "default" };
 }) {
   return (
     <div className="space-y-1">
@@ -106,6 +196,7 @@ function NumberField({
         onChange={(e) => onChange(Number(e.target.value))}
         className={`h-8 ${warn ? "border-amber-500/60" : ""}`}
       />
+      {source ? <SourceLine s={source} fallbackFrom={source.fallbackFrom} /> : null}
       {warn ? (
         <p className="text-[10px] text-amber-600 dark:text-amber-500">{warn}</p>
       ) : hint ? (
@@ -153,6 +244,8 @@ export function RuntimeTab({
 
   const [state, setState] = useState<NbRuntimeState | null>(null);
   const [form, setForm] = useState<NbRuntimeSettings | null>(null);
+  // Settings whose saved value Reset clears on the next save (R550).
+  const [reset, setReset] = useState<ReadonlySet<string>>(new Set());
   const [egressText, setEgressText] = useState("");
   const [fallbackText, setFallbackText] = useState("");
   // Lines the squid ACL renderer will drop. Uses the SAME functions that do the
@@ -184,12 +277,20 @@ export function RuntimeTab({
   // The form is ONE object across every tab; whether anything on any tab has
   // changed since the last load is one comparison, and the save bar says so —
   // otherwise a change made three tabs ago is invisible from where you stand.
+  // Only what changed is saved (R550), so "unsaved" is whether there is any.
+  const egressChanged = !!state && egressText !== state.settings.egress_allowlist.join("\n");
+  const fallbackChanged =
+    !!state && fallbackText !== (state.settings.gateway_fallback_models ?? []).join("\n");
+  const patch =
+    state && form
+      ? settingsPatch(
+          state.settings as unknown as Record<string, unknown>,
+          form as unknown as Record<string, unknown>,
+          reset,
+        )
+      : {};
   const dirty =
-    !!state &&
-    !!form &&
-    (JSON.stringify(form) !== JSON.stringify(state.settings) ||
-      egressText !== state.settings.egress_allowlist.join("\n") ||
-      fallbackText !== (state.settings.gateway_fallback_models ?? []).join("\n"));
+    !!state && !!form && (Object.keys(patch).length > 0 || egressChanged || fallbackChanged);
   const [grantType, setGrantType] = useState<"user" | "group">("group");
   const [grantId, setGrantId] = useState("");
   const [busyGrant, setBusyGrant] = useState(false);
@@ -217,6 +318,7 @@ export function RuntimeTab({
         }
         setState(res);
         setForm(res.settings);
+        setReset(new Set());
         setEgressText(res.settings.egress_allowlist.join("\n"));
         setFallbackText((res.settings.gateway_fallback_models ?? []).join("\n"));
       })
@@ -261,8 +363,28 @@ export function RuntimeTab({
     );
   }
 
-  const set = <K extends keyof NbRuntimeSettings>(k: K, v: NbRuntimeSettings[K]) =>
+  const set = <K extends keyof NbRuntimeSettings>(k: K, v: NbRuntimeSettings[K]) => {
     setForm((f) => (f ? { ...f, [k]: v } : f));
+    // Typing a value after Reset means that value, not the reset.
+    setReset((r) => {
+      if (!r.has(k)) return r;
+      const next = new Set(r);
+      next.delete(k);
+      return next;
+    });
+  };
+  // Where a setting the environment may also set takes its value from.
+  const src = (k: EnvBackedSetting): NonNullable<Parameters<typeof NumberField>[0]["source"]> => ({
+    source: state.sources[k],
+    envName: state.envNames[k],
+    fallback: state.fallbacks[k],
+    fallbackFrom: state.fallbackSources[k] === "env" ? "env" : "default",
+    resetPending: reset.has(k),
+    onReset: () => {
+      setForm((f) => (f ? { ...f, [k]: state.fallbacks[k] } : f));
+      setReset((r) => new Set(r).add(k));
+    },
+  });
 
   async function save() {
     if (!form) return;
@@ -276,8 +398,15 @@ export function RuntimeTab({
       .map((s) => s.trim())
       .filter(Boolean);
     try {
+      // Only what changed (R550): a save never writes a value it did not touch
+      // over the one the server's environment sets.
       const res = await updateFn({
-        data: { access_token: token, ...form, egress_allowlist, gateway_fallback_models },
+        data: {
+          access_token: token,
+          ...(patch as Partial<NbRuntimeSettings>),
+          ...(egressChanged ? { egress_allowlist } : {}),
+          ...(fallbackChanged ? { gateway_fallback_models } : {}),
+        },
       });
       if (!res.ok) return toast.error(res.error);
 
@@ -640,6 +769,7 @@ export function RuntimeTab({
                 label="Threads"
                 value={form.lakehouse_threads}
                 onChange={(n) => set("lakehouse_threads", n)}
+                source={src("lakehouse_threads")}
                 hint="per query engine"
                 warn={
                   state?.host && form.lakehouse_threads > state.host.cpus
@@ -687,11 +817,13 @@ export function RuntimeTab({
                 label="Concurrent runs / user"
                 value={form.etl_max_concurrent_runs_per_user}
                 onChange={(n) => set("etl_max_concurrent_runs_per_user", n)}
+                source={src("etl_max_concurrent_runs_per_user")}
               />
               <NumberField
                 label="Pipelines started per sweep"
                 value={form.etl_pipelines_per_sweep}
                 onChange={(n) => set("etl_pipelines_per_sweep", n)}
+                source={src("etl_pipelines_per_sweep")}
                 hint="sweeps run every 60s"
               />
               <div className="space-y-1">
@@ -720,12 +852,14 @@ export function RuntimeTab({
                 label="Monitors per sweep"
                 value={form.data_monitors_per_sweep}
                 onChange={(n) => set("data_monitors_per_sweep", n)}
+                source={src("data_monitors_per_sweep")}
                 hint="Due data monitors one scheduler sweep runs (sweeps run every 60 s)."
               />
               <NumberField
                 label="Anomaly threshold (sigma)"
                 value={form.data_monitor_anomaly_sigma}
                 onChange={(n) => set("data_monitor_anomaly_sigma", n)}
+                source={src("data_monitor_anomaly_sigma")}
                 step={0.1}
                 hint="Standard deviations from the learned baseline beyond which a volume check alerts. 3 is the usual choice."
               />
@@ -736,42 +870,49 @@ export function RuntimeTab({
                 label="Cells per grid sheet"
                 value={form.sheets_max_cells}
                 onChange={(n) => set("sheets_max_cells", n)}
+                source={src("sheets_max_cells")}
                 hint="Most non-empty cells one grid sheet may hold. Large data belongs in a table sheet, which lives in the lakehouse."
               />
               <NumberField
                 label="Table sheet page (rows)"
                 value={form.sheets_page_rows}
                 onChange={(n) => set("sheets_page_rows", n)}
+                source={src("sheets_page_rows")}
                 hint="Rows a table sheet fetches from the lakehouse at a time while you scroll."
               />
               <NumberField
                 label="Upload size (MB)"
                 value={form.sheets_upload_max_mb}
                 onChange={(n) => set("sheets_upload_max_mb", n)}
+                source={src("sheets_upload_max_mb")}
                 hint="Largest CSV a person can upload into the lakehouse from Sheets. Bigger files go through object storage and an ETL pipeline."
               />
               <NumberField
                 label="Sheets per file import"
                 value={form.sheets_import_max_sheets}
                 onChange={(n) => set("sheets_import_max_sheets", n)}
+                source={src("sheets_import_max_sheets")}
                 hint="Most sheets one Excel or CSV import may bring into a workbook."
               />
               <NumberField
                 label="Rows per table in a download"
                 value={form.sheets_export_max_rows}
                 onChange={(n) => set("sheets_export_max_rows", n)}
+                source={src("sheets_export_max_rows")}
                 hint="Most rows of a table sheet written into a downloaded .xlsx or .csv. Save larger tables to the lakehouse instead."
               />
               <NumberField
                 label="Minutes between automatic versions"
                 value={form.sheets_version_interval_minutes}
                 onChange={(n) => set("sheets_version_interval_minutes", n)}
+                source={src("sheets_version_interval_minutes")}
                 hint="A workbook keeps a version of itself as people edit, at most one this often. Named versions are taken whenever someone asks."
               />
               <NumberField
                 label="Automatic versions kept per workbook"
                 value={form.sheets_versions_max}
                 onChange={(n) => set("sheets_versions_max", n)}
+                source={src("sheets_versions_max")}
                 hint="The oldest automatic versions beyond this are removed; named versions are kept."
               />
               <div className="space-y-1">
@@ -792,12 +933,14 @@ export function RuntimeTab({
                 label="Assistant requests per person a minute"
                 value={form.sheets_assist_per_minute}
                 onChange={(n) => set("sheets_assist_per_minute", n)}
+                source={src("sheets_assist_per_minute")}
                 hint="Model calls one person's Sheets assistant and Fill with AI may make in a minute (each step of a question is one call)."
               />
               <NumberField
                 label="Rows one Fill with AI may write"
                 value={form.sheets_ai_fill_max_rows}
                 onChange={(n) => set("sheets_ai_fill_max_rows", n)}
+                source={src("sheets_ai_fill_max_rows")}
                 hint="Most rows one Fill with AI works through, sent to the model 50 at a time."
               />
             </div>
@@ -908,7 +1051,9 @@ export function RuntimeTab({
 
         <TabsContent value="ml" className="space-y-4">
           <p className="text-xs text-muted-foreground">
-            Budgets for training and batch prediction, and when a drift alert fires.
+            Budgets for training, prediction and serving, and when an alert fires. A value saved
+            here wins over the server&apos;s environment; each field says where its value comes
+            from.
           </p>
           <div className="space-y-3 rounded-lg border border-border/60 p-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -936,45 +1081,53 @@ export function RuntimeTab({
                 label="Training rows"
                 value={form.ml_train_max_rows}
                 onChange={(n) => set("ml_train_max_rows", n)}
+                source={src("ml_train_max_rows")}
                 hint="larger tables are reservoir-sampled to this"
               />
               <NumberField
                 label="Training time budget (min)"
                 value={form.ml_train_time_budget_minutes}
                 onChange={(n) => set("ml_train_time_budget_minutes", n)}
+                source={src("ml_train_time_budget_minutes")}
                 hint="default per run; the wizard can lower it"
               />
               <NumberField
                 label="Training sandbox memory (MB)"
                 value={form.ml_train_mem_limit_mb}
                 onChange={(n) => set("ml_train_mem_limit_mb", n)}
+                source={src("ml_train_mem_limit_mb")}
               />
               <NumberField
                 label="Serving sandbox memory (MB)"
                 value={form.ml_serve_mem_limit_mb}
                 onChange={(n) => set("ml_serve_mem_limit_mb", n)}
+                source={src("ml_serve_mem_limit_mb")}
                 hint="A scorer holds ONE fitted model resident and answers requests; measured at 169 MB against the 8 GB it used to borrow from the training budget. On Kubernetes this is the number a namespace quota counts per copy, so it decides how many copies of a model you may run. The default leaves room for the largest artifact the platform accepts, unpickled."
               />
               <NumberField
                 label="Concurrent trainings / user"
                 value={form.ml_max_concurrent_trainings_per_user}
                 onChange={(n) => set("ml_max_concurrent_trainings_per_user", n)}
+                source={src("ml_max_concurrent_trainings_per_user")}
               />
               <NumberField
                 label="Batch prediction rows"
                 value={form.ml_predict_max_rows}
                 onChange={(n) => set("ml_predict_max_rows", n)}
+                source={src("ml_predict_max_rows")}
               />
               <NumberField
                 label="Search workers"
                 value={form.ml_train_workers}
                 onChange={(n) => set("ml_train_workers", n)}
+                source={src("ml_train_workers")}
                 hint="Sandboxes one training job spreads its algorithm search across. Each worker trains its own share of the candidates and the job keeps the best; a single model still trains in one container. Bounded by sessions per user above, and only classification and regression have a search to split."
               />
               <NumberField
                 label="Training GPUs"
                 value={form.ml_train_gpus}
                 onChange={(n) => set("ml_train_gpus", n)}
+                source={src("ml_train_gpus")}
                 hint={
                   form.backend === "ecs"
                     ? "Fargate has no GPUs, so on this backend keep this at 0; GPU training runs on the Kubernetes backend (EKS) or a single GPU host with Docker."
@@ -985,40 +1138,147 @@ export function RuntimeTab({
                 label="Notebook artifact size (MB)"
                 value={form.ml_artifact_max_mb}
                 onChange={(n) => set("ml_artifact_max_mb", n)}
+                source={src("ml_artifact_max_mb")}
                 hint="Largest model a notebook run may save into the lake bucket through the platform. The kernel holds no bucket credentials, so the bytes travel through the app."
               />
               <NumberField
                 label="Drift alert threshold (PSI)"
                 value={form.ml_drift_alert_psi}
                 onChange={(n) => set("ml_drift_alert_psi", n)}
+                source={src("ml_drift_alert_psi")}
                 hint="A batch prediction whose rows drift past this population stability index notifies the model's owner. 0.25 is the usual line."
               />
               <NumberField
                 label="Fairness review threshold (ratio)"
                 value={form.ml_fairness_min_ratio}
                 onChange={(n) => set("ml_fairness_min_ratio", n)}
+                source={src("ml_fairness_min_ratio")}
                 hint="A group selected less often than this share of the best-treated group's rate asks for review. 0.8 is the four-fifths rule from the US EEOC guidelines — a rule of thumb rather than a law, and not the standard everywhere."
               />
               <NumberField
                 label="Cross-validate below this many holdout rows"
                 value={form.ml_cv_min_holdout_rows}
                 onChange={(n) => set("ml_cv_min_holdout_rows", n)}
+                source={src("ml_cv_min_holdout_rows")}
                 hint="Picking a model never reads the holdout — it scores candidates inside the training rows. Above this many held-out rows one inner split already pins the score, so k-fold would cost k times the fits to buy almost nothing; below it, folds earn their keep. Time-ordered data always uses time-series folds."
               />
               <NumberField
                 label="Split training above this many rows per worker"
                 value={form.ml_parallel_min_rows}
                 onChange={(n) => set("ml_parallel_min_rows", n)}
+                source={src("ml_parallel_min_rows")}
                 hint="A dataset too large for one container is refitted across several, each on its own hashed slice, and their fits averaged. Each worker still has to see enough rows to learn from: measured, a slice of 25,000 costs about half a point of F1 against a single fit while beating the sample fit that is the alternative, and a slice of 2,500 costs three points. Below this the trainer samples the old way instead."
               />
               <NumberField
                 label="Decay alert threshold (ratio)"
                 value={form.ml_decay_alert_ratio}
                 onChange={(n) => set("ml_decay_alert_ratio", n)}
+                source={src("ml_decay_alert_ratio")}
                 hint="How much worse than its training score a model may do against real outcomes before its owner is told. A ratio, so 0.1 means ten per cent worse — and it reads the same way for a metric that should rise and one that should fall."
               />
             </div>
+
+            <p className="text-xs font-medium text-muted-foreground">Serving</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberField
+                label="Warm endpoints per person"
+                value={form.ml_max_deployments_per_user}
+                onChange={(n) => set("ml_max_deployments_per_user", n)}
+                source={src("ml_max_deployments_per_user")}
+                hint="Each holds a model in memory whether or not anyone is scoring, which is why this is small; an idle timer takes one down when it stops earning it."
+              />
+              <NumberField
+                label="Warm endpoints in total"
+                value={form.ml_max_deployments_total}
+                onChange={(n) => set("ml_max_deployments_total", n)}
+                source={src("ml_max_deployments_total")}
+                hint="Across everyone on this instance."
+              />
+              <NumberField
+                label="Requests a minute per copy"
+                value={form.ml_serve_target_rpm_per_replica}
+                onChange={(n) => set("ml_serve_target_rpm_per_replica", n)}
+                source={src("ml_serve_target_rpm_per_replica")}
+                hint="What one copy of a warm endpoint is sized for: past it a copy is added, up to the endpoint's own maximum. On KServe the cluster scales instead, on KSERVE_SCALE_TARGET in the server's environment."
+              />
+              <NumberField
+                label="Wait between resizes (s)"
+                value={form.ml_serve_scale_cooldown_seconds}
+                onChange={(n) => set("ml_serve_scale_cooldown_seconds", n)}
+                source={src("ml_serve_scale_cooldown_seconds")}
+                hint="So a short burst does not start a copy that is stopped again a minute later."
+              />
+            </div>
+
+            <p className="text-xs font-medium text-muted-foreground">
+              Explanations and reason codes
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberField
+                label="Rows one request may explain"
+                value={form.ml_explain_max_rows}
+                onChange={(n) => set("ml_explain_max_rows", n)}
+                source={src("ml_explain_max_rows")}
+                hint="Every feature of every row costs one more prediction, so this bounds work, not who may ask."
+              />
+              <NumberField
+                label="Features per explanation"
+                value={form.ml_explain_top_k}
+                onChange={(n) => set("ml_explain_top_k", n)}
+                source={src("ml_explain_top_k")}
+                hint="How many features an explanation lists, largest effect first."
+              />
+              <NumberField
+                label="Rows a batch may write reason codes for"
+                value={form.ml_explain_batch_max_rows}
+                onChange={(n) => set("ml_explain_batch_max_rows", n)}
+                source={src("ml_explain_batch_max_rows")}
+                hint="Above it the batch is refused before a sandbox starts, rather than leaving most rows without reasons."
+              />
+              <NumberField
+                label="Reason codes per row in a batch"
+                value={form.ml_explain_batch_top_k}
+                onChange={(n) => set("ml_explain_batch_top_k", n)}
+                source={src("ml_explain_batch_top_k")}
+                hint="Each is two columns on the scored table."
+              />
+              <NumberField
+                label="Rows explained together"
+                value={form.ml_explain_chunk_rows}
+                onChange={(n) => set("ml_explain_chunk_rows", n)}
+                source={src("ml_explain_chunk_rows")}
+                hint="Rows that share one stacked frame while a batch writes reason codes: higher is faster and takes more memory."
+              />
+            </div>
+
+            <p className="text-xs font-medium text-muted-foreground">
+              API, imports and accuracy checks
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <NumberField
+                label="API calls a minute per key"
+                value={form.ml_api_rate_limit_per_min}
+                onChange={(n) => set("ml_api_rate_limit_per_min", n)}
+                source={src("ml_api_rate_limit_per_min")}
+                hint="For /api/ml/*, per ML API key."
+              />
+              <NumberField
+                label="Largest MLflow import (MB)"
+                value={form.ml_import_max_mb}
+                onChange={(n) => set("ml_import_max_mb", n)}
+                source={src("ml_import_max_mb")}
+                hint="1 to 4096. The model file is checked again after unzipping."
+              />
+              <NumberField
+                label="Accuracy checks per sweep"
+                value={form.ml_evaluations_per_sweep}
+                onChange={(n) => set("ml_evaluations_per_sweep", n)}
+                source={src("ml_evaluations_per_sweep")}
+                hint="Prediction runs re-measured against real outcomes in one pass of the platform clock."
+              />
+            </div>
           </div>
+          <ServingEnvPanel view={state.serving} />
         </TabsContent>
 
         <TabsContent value="ai" className="space-y-4">
@@ -1053,6 +1313,7 @@ export function RuntimeTab({
                 label="AI calls per statement"
                 value={form.ai_sql_max_calls_per_statement}
                 onChange={(n) => set("ai_sql_max_calls_per_statement", n)}
+                source={src("ai_sql_max_calls_per_statement")}
                 hint="Model calls one lakehouse statement may make through ai_* functions (distinct inputs only; cached answers are free)."
               />
               <div className="space-y-1">
@@ -1072,6 +1333,7 @@ export function RuntimeTab({
                 label="Answer cache (days)"
                 value={form.ai_sql_cache_ttl_days}
                 onChange={(n) => set("ai_sql_cache_ttl_days", n)}
+                source={src("ai_sql_cache_ttl_days")}
                 hint="How long an ai_* answer is reused for the same input and model before the model is asked again."
               />
             </div>
@@ -1094,6 +1356,7 @@ export function RuntimeTab({
                 label="Pages per document"
                 value={form.document_vision_max_pages}
                 onChange={(n) => set("document_vision_max_pages", n)}
+                source={src("document_vision_max_pages")}
                 hint="Pages one uploaded document may have read by the vision model (one model call per page)."
               />
             </div>
@@ -1103,6 +1366,7 @@ export function RuntimeTab({
                 label="Gateway calls per minute"
                 value={form.gateway_rate_limit_per_min}
                 onChange={(n) => set("gateway_rate_limit_per_min", n)}
+                source={src("gateway_rate_limit_per_min")}
                 hint="Calls a minute one AI-gateway key may make unless the key sets its own limit (Integrations → LLM gateway → API access)."
               />
               <div className="space-y-1 sm:col-span-2">
@@ -1123,6 +1387,7 @@ export function RuntimeTab({
                 label="Metrics API rows per query"
                 value={form.gateway_metrics_max_rows}
                 onChange={(n) => set("gateway_metrics_max_rows", n)}
+                source={src("gateway_metrics_max_rows")}
                 hint="Rows one /api/v1/metrics/query call may return; a smaller limit in the request wins."
               />
             </div>
@@ -1138,6 +1403,7 @@ export function RuntimeTab({
                 label="Similarity to reuse an answer"
                 value={form.gateway_cache_similarity}
                 onChange={(n) => set("gateway_cache_similarity", n)}
+                source={src("gateway_cache_similarity")}
                 step={0.01}
                 hint="Cosine similarity a cached question must reach before its answer is reused. Lower reuses more and risks answering a near-miss."
               />
@@ -1145,12 +1411,14 @@ export function RuntimeTab({
                 label="Answer lifetime (hours)"
                 value={form.gateway_cache_ttl_hours}
                 onChange={(n) => set("gateway_cache_ttl_hours", n)}
+                source={src("gateway_cache_ttl_hours")}
                 hint="How long a cached answer stays reusable before the model is asked again."
               />
               <NumberField
                 label="Temperature ceiling"
                 value={form.gateway_cache_max_temperature}
                 onChange={(n) => set("gateway_cache_max_temperature", n)}
+                source={src("gateway_cache_max_temperature")}
                 step={0.1}
                 hint="Above this temperature a turn is never served from, or written to, the cache: a high temperature asks for variety."
               />

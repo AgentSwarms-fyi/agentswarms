@@ -35,11 +35,11 @@ export const Route = createFileRoute("/api/ml/import/mlflow")({
         if (!UUID.test(modelId)) return json({ error: "model_id must be a model's id" }, 400);
         // Refused before it is read when the sender says how large it is.
         const declared = Number(request.headers.get("content-length") ?? NaN);
-        const cap = importMaxBytes();
+        const cap = await importMaxBytes();
         if (Number.isFinite(declared) && declared > cap) {
           return json(
             {
-              error: `The zip is above the ${Math.round(cap / 1048576)} MB import limit (ML_IMPORT_MAX_MB).`,
+              error: `The zip is above the ${Math.round(cap / 1048576)} MB import limit (Admin -> Developer runtime, or ML_IMPORT_MAX_MB).`,
             },
             413,
           );

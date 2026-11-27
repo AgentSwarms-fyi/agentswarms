@@ -12,11 +12,11 @@ import {
   runLakehouseStatement,
 } from "@/utils/lakehouse/core.server";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
-import { envInt, rateLimitedGlobal } from "@/utils/rateLimit.server";
+import { rateLimitedGlobal } from "@/utils/rateLimit.server";
 import { clientIp, clientUserAgent } from "@/utils/requestMeta.server";
 import { hashMlApiKey, looksLikeMlApiKey, type MlKeyScope } from "@/utils/mlApiKeys";
 import type { MlModelRow, MlVersionRow } from "./access.server";
-import { ML_EXPLAIN_BATCH_MAX_ROWS, ML_ROWS_PREDICT_CAP, startPrediction } from "./predict.server";
+import { ML_ROWS_PREDICT_CAP, startPrediction } from "./predict.server";
 import { startTrainingJob } from "./train.server";
 import {
   ML_PRIMARY_METRIC,
@@ -493,10 +493,10 @@ export async function startBatchPrediction(args: {
   // paid for, so the answer names the real number and what to do about it —
   // and the alternative, explaining the first N rows and leaving the rest
   // null, produces a table that looks complete and is not.
-  if (args.explain && rows > ML_EXPLAIN_BATCH_MAX_ROWS) {
+  if (args.explain && rows > r.mlExplainBatchMaxRows) {
     return {
       ok: false,
-      error: `${rows.toLocaleString()} rows is above the ${ML_EXPLAIN_BATCH_MAX_ROWS.toLocaleString()}-row limit for reason codes, which cost one extra prediction per feature per row. Narrow the rows with a filter, score without reason codes, or raise ML_EXPLAIN_BATCH_MAX_ROWS.`,
+      error: `${rows.toLocaleString()} rows is above the ${r.mlExplainBatchMaxRows.toLocaleString()}-row limit for reason codes, which cost one extra prediction per feature per row. Narrow the rows with a filter, score without reason codes, or raise the limit under Admin -> Developer runtime (ML_EXPLAIN_BATCH_MAX_ROWS).`,
     };
   }
   const started = await startPrediction({
@@ -538,8 +538,12 @@ export type MlApiAuth =
   | { ok: true; key: MlApiKeyRecord; model: MlModelRow }
   | { ok: false; status: number; error: string };
 
-/** The documented ceiling per key; a governance claim, so the global limiter. */
-export const mlApiRateLimitPerMinute = () => envInt("ML_API_RATE_LIMIT_PER_MIN", 60);
+/**
+ * The documented ceiling per key; a governance claim, so the global limiter.
+ * Admin -> Developer runtime, then ML_API_RATE_LIMIT_PER_MIN, then 60 (R550).
+ */
+export const mlApiRateLimitPerMinute = async () =>
+  (await getPlatformResources()).mlApiRateLimitPerMin;
 
 /**
  * Resolve `Authorization: Bearer mlk_…` to its key and model, or say why not.
@@ -589,7 +593,7 @@ export async function authenticateMlApiKey(
   if (!key.scopes.includes(scope)) {
     return deny("scope", `This key does not have the "${scope}" scope`, 403, key);
   }
-  if (await rateLimitedGlobal(`ml-api:${key.id}`, mlApiRateLimitPerMinute())) {
+  if (await rateLimitedGlobal(`ml-api:${key.id}`, await mlApiRateLimitPerMinute())) {
     return deny("rate_limited", "Rate limit exceeded for this key; retry in a minute", 429, key);
   }
   const { data: model } = await supabaseAdmin

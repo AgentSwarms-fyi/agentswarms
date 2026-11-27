@@ -350,7 +350,8 @@ describe("the wiring", () => {
       'positive(data?.gateway_metrics_max_rows) ?? envInt("AI_GATEWAY_METRICS_MAX_ROWS") ?? 10000',
     );
     expect(rd("src/utils/notebookRuntimeAdmin.functions.ts")).toContain(
-      "gateway_metrics_max_rows: z.number().int().min(1).max(100_000_000).optional()",
+      // Nullable since R550: clearing the saved value puts the env's back.
+      "gateway_metrics_max_rows: z.number().int().min(1).max(100_000_000).nullable().optional()",
     );
     expect(rd("src/components/admin/RuntimeTab.tsx")).toContain(
       'set("gateway_metrics_max_rows", n)',

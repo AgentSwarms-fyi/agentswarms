@@ -254,14 +254,12 @@ describe("the evidence reaches the version", () => {
 });
 
 describe("the cost knob is wired everywhere it has to be", () => {
-  it("named in the explicit SELECT list, or it silently never applies", () => {
-    // getPlatformResources selects columns by name. A knob missing from that
-    // list reads as null for ever and the default wins in silence.
-    const select = CONFIG.slice(
-      CONFIG.indexOf("lakehouse_memory_limit"),
-      CONFIG.indexOf("document_vision_max_pages"),
-    );
-    expect(select).toContain("ml_cv_min_holdout_rows");
+  it("read from the settings row, or it silently never applies", () => {
+    // getPlatformResources selected columns by name, and a knob missing from
+    // that list read as null for ever. Since R550 it reads the whole row
+    // (mlServingLimits.test.ts holds every resolved name to a real column).
+    expect(CONFIG).toContain('.select("*")');
+    expect(CONFIG).toContain("positive(data?.ml_cv_min_holdout_rows)");
   });
 
   it("read with an env fallback and a default", () => {

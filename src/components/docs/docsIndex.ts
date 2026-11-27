@@ -3380,6 +3380,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "title": "ML Models · Serving",
     "description": "Warm endpoints for low-latency prediction: copies and autoscaling, what a copy can and cannot do, trying a version on real traffic as a shadow or a canary, and training past what one container holds.",
     "terms": [
+      "KSERVE_*",
       "KSERVE_ACCESS",
       "KSERVE_MODE",
       "KSERVE_NAMESPACE",
@@ -3390,6 +3391,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ML_SERVE_MEM_LIMIT_MB",
       "ML_SERVE_SCALE_COOLDOWN_SECONDS",
       "ML_SERVE_TARGET_RPM_PER_REPLICA",
+      "ML_SERVING_BACKEND",
       "ML_SERVING_BACKEND=kserve",
       "ML_TRAIN_MEM_LIMIT_MB",
       "Pending",
@@ -3428,6 +3430,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "kserve",
         "text": "Serving on Kubernetes with KServe",
+        "level": 3
+      },
+      {
+        "id": "hardware",
+        "text": "What hardware serving needs",
         "level": 3
       },
       {

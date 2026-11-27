@@ -116,8 +116,12 @@ describe("the service", () => {
     expect(api).toContain("if (!looksLikeMlApiKey(raw)) return deny(");
     expect(api).toContain('.eq("key_hash", await hashMlApiKey(raw))');
     expect(api).toContain("if (!key.scopes.includes(scope)) {");
-    expect(api).toContain("rateLimitedGlobal(`ml-api:${key.id}`, mlApiRateLimitPerMinute())");
-    expect(api).toContain('envInt("ML_API_RATE_LIMIT_PER_MIN", 60)');
+    // R550: the ceiling is a platform setting, read per call.
+    expect(api).toContain("rateLimitedGlobal(`ml-api:${key.id}`, await mlApiRateLimitPerMinute())");
+    expect(api).toContain("(await getPlatformResources()).mlApiRateLimitPerMin");
+    expect(readFileSync("src/utils/notebookRuntime/config.server.ts", "utf8")).toContain(
+      'envInt("ML_API_RATE_LIMIT_PER_MIN") ?? 60',
+    );
     expect(api).toContain('action: "ml.api_key.denied"');
     for (const reason of [
       "missing",

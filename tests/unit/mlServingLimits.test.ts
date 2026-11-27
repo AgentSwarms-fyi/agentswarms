@@ -16,10 +16,11 @@ const SERVICE = rd("src/utils/notebookRuntime/service.server.ts");
 const ADMIN_FN = rd("src/utils/notebookRuntimeAdmin.functions.ts");
 const ADMIN_UI = rd("src/components/admin/RuntimeTab.tsx");
 
-/** The explicit column list getPlatformResources reads. */
-const selectList = CONFIG.slice(
-  CONFIG.indexOf("lakehouse_memory_limit"),
-  CONFIG.indexOf("document_vision_max_pages") + "document_vision_max_pages".length,
+/** The settings table's columns, as the generated types know them. */
+const TYPES = rd("src/integrations/supabase/types.ts");
+const settingsRow = TYPES.slice(
+  TYPES.indexOf("      notebook_runtime_settings: {"),
+  TYPES.indexOf("        Insert: {", TYPES.indexOf("      notebook_runtime_settings: {")),
 );
 
 describe("every knob is actually reachable", () => {
@@ -49,8 +50,19 @@ describe("every knob is actually reachable", () => {
     expect(resolved).not.toContain("egress_allowlist");
   });
 
-  it.each([...new Set(resolved)])("%s is in the explicit SELECT list", (column) => {
-    expect(selectList, `${column} is read but never selected`).toContain(column);
+  // R550: the read is now `select("*")`. The list it replaced was the guard
+  // above's reason to exist, and it had a second failure this one never saw:
+  // a column a pending migration adds, named in the list, failed the WHOLE
+  // read, and every saved setting fell back to the environment at once. With
+  // "*" every column there is is read, so the remaining way for a knob to do
+  // nothing is a name that is not a column at all.
+  it("reads every column of the row, not a list a migration can outrun", () => {
+    expect(platformBody).toContain('.select("*")');
+    expect(platformBody).not.toMatch(/\.select\("lakehouse_memory_limit/);
+  });
+
+  it.each([...new Set(resolved)])("%s is a column of the settings row", (column) => {
+    expect(settingsRow, `${column} is read but is not a column`).toContain(`          ${column}:`);
   });
 });
 

@@ -302,10 +302,13 @@ export async function buildMlflowFolder(
 
 // ── Import ────────────────────────────────────────────────────────────────
 
-/** The most an imported MLflow model may weigh, zipped (ML_IMPORT_MAX_MB). */
-export function importMaxBytes(): number {
-  const mb = Number(process.env.ML_IMPORT_MAX_MB);
-  return (Number.isFinite(mb) && mb >= 1 && mb <= 4096 ? Math.floor(mb) : 500) * 1024 * 1024;
+/**
+ * The most an imported MLflow model may weigh, zipped: Admin -> Developer
+ * runtime, then ML_IMPORT_MAX_MB, then 500 MB (R550). 1 to 4096 MB.
+ */
+export async function importMaxBytes(): Promise<number> {
+  const { getPlatformResources } = await import("@/utils/notebookRuntime/config.server");
+  return (await getPlatformResources()).mlImportMaxMb * 1024 * 1024;
 }
 
 /** MLmodel is YAML of a few kilobytes; one much larger is not an MLmodel. */
@@ -395,13 +398,13 @@ export async function importMlflowZip(args: {
       error: `A ${model.task} model cannot take an imported model. Import into a classification, regression, clustering or anomaly model.`,
     };
   }
-  const cap = importMaxBytes();
+  const cap = await importMaxBytes();
   const mb = (n: number) => Math.round(n / 1048576);
   if (args.bytes.length > cap) {
     return {
       ok: false,
       status: 413,
-      error: `The zip is ${mb(args.bytes.length)} MB, above the ${mb(cap)} MB import limit (ML_IMPORT_MAX_MB).`,
+      error: `The zip is ${mb(args.bytes.length)} MB, above the ${mb(cap)} MB import limit (Admin -> Developer runtime, or ML_IMPORT_MAX_MB).`,
     };
   }
   let entries: ZipEntry[];
@@ -445,7 +448,7 @@ export async function importMlflowZip(args: {
     return {
       ok: false,
       status: 413,
-      error: `The model file is above the ${mb(cap)} MB import limit (ML_IMPORT_MAX_MB).`,
+      error: `The model file is above the ${mb(cap)} MB import limit (Admin -> Developer runtime, or ML_IMPORT_MAX_MB).`,
     };
   }
   const file = zipEntry(args.bytes, fileEntry);
