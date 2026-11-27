@@ -143,6 +143,7 @@ import { SwarmVersionsDialog } from "@/components/swarms/SwarmVersionsDialog";
 import { canvasForm, snapshotSwarmVersion, graphHash, swarmStoredForm } from "@/lib/swarmVersions";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { clickable } from "@/lib/clickable";
+import { clickedNodeCorner, nodeCornerAt } from "@/lib/canvasPlacement";
 import { StarButton } from "@/components/StarButton";
 import { useRecordOpened } from "@/hooks/use-object-marks";
 import { moveToTrash } from "@/hooks/use-trash";
@@ -1315,13 +1316,31 @@ function SwarmsCanvas({
     setEdgeLabelTarget(null);
   }, [edgeLabelTarget, setEdges]);
 
+  // The canvas area (under the toolbar, above the run dock), so a node clicked
+  // in from the palette lands in the middle of what you can see
+  // (src/lib/canvasPlacement.ts), wherever the canvas is panned or zoomed.
+  const canvasAreaRef = useRef<HTMLDivElement | null>(null);
+  const clickedNodeSpot = useCallback(() => {
+    const area = canvasAreaRef.current?.getBoundingClientRect();
+    const center = area
+      ? reactFlow.screenToFlowPosition({
+          x: area.left + area.width / 2,
+          y: area.top + area.height / 2,
+        })
+      : { x: 0, y: 0 };
+    return clickedNodeCorner(
+      center,
+      reactFlow.getNodes().map((n) => n.position),
+    );
+  }, [reactFlow]);
+
   const addNode = useCallback(
     (item: PaletteItem, pos?: { x: number; y: number }) => {
       const id = `n_${Date.now()}_${idCounter.current++}`;
       const newNode: Node<SwarmNodeData> = {
         id,
         type: item.kind,
-        position: pos ?? { x: 200 + Math.random() * 300, y: 100 + Math.random() * 300 },
+        position: pos ?? clickedNodeSpot(),
         data: {
           label: item.label,
           kind: item.kind,
@@ -1334,7 +1353,7 @@ function SwarmsCanvas({
       setNodes((nds: Node<SwarmNodeData>[]) => [...nds, newNode]);
       setSelectedNodeId(id);
     },
-    [setNodes],
+    [setNodes, clickedNodeSpot],
   );
 
   // Saved custom components shown in the palette.
@@ -1373,10 +1392,13 @@ function SwarmsCanvas({
       const raw = event.dataTransfer.getData("application/swarmnode");
       if (!raw) return;
       const item = JSON.parse(raw) as PaletteItem;
-      const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
-      addNode(item, { x: event.clientX - bounds.left - 90, y: event.clientY - bounds.top - 40 });
+      // Under the pointer, in canvas coordinates, so pan and zoom are counted.
+      addNode(
+        item,
+        nodeCornerAt(reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY })),
+      );
     },
-    [addNode],
+    [addNode, reactFlow],
   );
 
   const updateSelectedNode = useCallback(
@@ -2116,7 +2138,12 @@ function SwarmsCanvas({
 
         {/* Canvas + bottom run dock */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          <div className="relative flex-1 min-h-0" onDrop={onDrop} onDragOver={onDragOver}>
+          <div
+            ref={canvasAreaRef}
+            className="relative flex-1 min-h-0"
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+          >
             <div className="absolute top-3 left-3 right-3 z-10 flex items-center gap-2 flex-wrap pr-2">
               <Button
                 onClick={onBackToGallery}
