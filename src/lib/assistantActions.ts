@@ -16,6 +16,9 @@
 
 export const ASSISTANT_ACTION = "assistant.action";
 
+/** How the tool's answer starts when it filed nothing; the loop reads it. */
+export const NOT_PROPOSED = "Not proposed: ";
+
 export const ACTION_KINDS = ["workflow", "etl_pipeline"] as const;
 export type ActionKind = (typeof ACTION_KINDS)[number];
 
@@ -74,8 +77,9 @@ const quoted = (name: string) => `“${name.replace(/[“”"]/g, "").slice(0, 1
 export function actionTitle(p: ProposedAction): string {
   const what = KIND_WORD[p.kind];
   if (p.action === "run_now") return `Run the ${what} ${quoted(p.name)} now`;
-  if (p.action === "pause") return `Pause the ${what} ${quoted(p.name)}'s schedule`;
-  return `Resume the ${what} ${quoted(p.name)}'s schedule`;
+  // Not "“X”'s schedule": a possessive after a closing quote reads as a typo.
+  if (p.action === "pause") return `Pause the schedule of the ${what} ${quoted(p.name)}`;
+  return `Resume the schedule of the ${what} ${quoted(p.name)}`;
 }
 
 /** What approving it does, in fixed words. */

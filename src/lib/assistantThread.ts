@@ -109,6 +109,27 @@ export function messagesToSend(
   return out;
 }
 
+/** How an answer says, in the past, that it filed something for approval. */
+const SAYS_IT_PROPOSED =
+  /\bI(?:'ve|’ve| have)? (?:just |now |already )?(?:proposed|filed|submitted|requested)\b|\b(?:has|have) been (?:proposed|filed|submitted)\b/i;
+
+/**
+ * An answer that says it filed a proposal when none was filed in it (R553).
+ *
+ * FOUND FROM THE UI. After two real proposals in one conversation, "run it
+ * now" was answered "I have proposed to run the workflow…" with no call made:
+ * the model copied its own earlier answers, which reach it as text only.
+ * Nothing waited in the inbox. The prompt asks for the call every time; this
+ * catches the answer that still claims one, so the reader is not left waiting
+ * for an approval that does not exist.
+ */
+export function unfiledProposal(m: AssistantMessage): boolean {
+  if (m.role !== "assistant" || m.error || !m.content) return false;
+  if (m.tools?.some((t) => t.status === "running")) return false;
+  if (m.tools?.some((t) => t.name === "propose_action" && t.status === "ok")) return false;
+  return SAYS_IT_PROPOSED.test(m.content);
+}
+
 /** What the reader is told a tool is doing, or did. */
 export function toolLabel(t: AssistantToolUse): string {
   const running = t.status === "running";
@@ -120,7 +141,9 @@ export function toolLabel(t: AssistantToolUse): string {
     case "describe_my_thing":
       return running ? "Reading it…" : "Read it";
     case "propose_action":
-      return running ? "Asking for your approval…" : "Asked for your approval";
+      if (running) return "Asking for your approval…";
+      // Refused (not yours, no schedule): nothing is waiting in the inbox.
+      return t.status === "error" ? "Nothing filed for approval" : "Asked for your approval";
     default:
       return running ? "Working…" : "Looked something up";
   }

@@ -22,6 +22,7 @@ import {
   checkAction,
   isAction,
   isActionKind,
+  NOT_PROPOSED,
   type ActionKind,
   type ActionTarget,
   type ProposedAction,
@@ -155,7 +156,7 @@ export async function runProposeAction(
     return "Proposing a change works only in the signed-in app.";
   }
   const res = await proposeAssistantAction(ctx, args ?? {});
-  if (!res.ok) return `Not proposed: ${res.error}`;
+  if (!res.ok) return `${NOT_PROPOSED}${res.error}`;
   return res.alreadyWaiting
     ? `Already waiting for the user's approval: ${res.title}. Tell them it is in their approvals inbox; nothing has happened yet.`
     : `Waiting for the user's approval: ${res.title}. Tell them to approve it in their approvals inbox (the tray at the top of the page); nothing happens until they do. Do not say it is done.`;
@@ -267,7 +268,11 @@ async function carryOut(
   }
   const { error } = await supabaseAdmin
     .from(TABLE[p.kind])
-    .update({ is_active: isActive, next_run_at: nextRunAt })
+    // FOUND FROM THE UI. Without a new updated_at, a workflow page opened
+    // before the approval still held the old version, and its next Save
+    // passed the version check and quietly switched the schedule back on.
+    // With it, that Save is refused as changed elsewhere.
+    .update({ is_active: isActive, next_run_at: nextRunAt, updated_at: new Date().toISOString() })
     .eq("id", p.id)
     .eq("user_id", row.user_id);
   if (error) return { ok: false, error: error.message };

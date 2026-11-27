@@ -15,6 +15,7 @@ import type { ToolDef, ToolHandler, AgentToolContext } from "./registry.server";
 import { SsrfRefusedError, providerFetch } from "@/utils/ssrfGuard.server";
 import { extractToolSources, type RawSource } from "./sources";
 import { mlToolData, type MlToolData } from "@/lib/mlToolResult";
+import { NOT_PROPOSED } from "@/lib/assistantActions";
 import { providerReportedCost, usageReportingBody } from "@/utils/observability/providerCost";
 
 type GatewayMessage = {
@@ -555,6 +556,12 @@ export async function streamChatWithTools(opts: {
           try {
             const parsed = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
             result = await handler(opts.toolCtx, parsed);
+            // A proposal the tool refused filed nothing (R553). Found from the
+            // UI: the step still read "Asked for your approval" above an answer
+            // saying it could not be done.
+            if (tc.function.name === "propose_action" && result.startsWith(NOT_PROPOSED)) {
+              ok = false;
+            }
           } catch (e) {
             ok = false;
             result = JSON.stringify({ error: e instanceof Error ? e.message : String(e) });

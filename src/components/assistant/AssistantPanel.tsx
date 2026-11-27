@@ -33,6 +33,7 @@ import {
   showMentionList,
   MENTIONS_MAX,
   toolLabel,
+  unfiledProposal,
   type AssistantMention,
   type AssistantMessage,
   type AssistantToolUse,
@@ -342,6 +343,15 @@ function PanelBody({
                   ) : m.content ? (
                     <div className="text-sm [&_p]:my-2 [&_p]:leading-6">
                       <MarkdownMessage content={localHandbookLinks(m.content)} />
+                      {!(state.busy && i === state.messages.length - 1) && unfiledProposal(m) ? (
+                        <p
+                          role="note"
+                          className="mt-1 rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-xs leading-5 text-muted-foreground"
+                        >
+                          Nothing was put in your approvals by this answer. Ask again to have it
+                          proposed.
+                        </p>
+                      ) : null}
                     </div>
                   ) : !m.tools?.length ? (
                     <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

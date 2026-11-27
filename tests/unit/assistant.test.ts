@@ -135,7 +135,10 @@ describe("what the assistant is told", () => {
   it("says it changes nothing itself, and never makes up a link", () => {
     expect(prompt).toMatch(/You cannot change anything yourself/);
     // What it may do instead is propose, and it must not say it is done.
-    expect(prompt).toMatch(/call propose_action: it waits in their approvals inbox/);
+    expect(prompt).toMatch(
+      /call propose_action in this reply, every time: only that call files it/,
+    );
+    expect(prompt).toMatch(/Say it waits in their approvals inbox/);
     expect(prompt).toMatch(/never that it is done/);
     expect(prompt).toMatch(/Never make up an id or a path/);
   });

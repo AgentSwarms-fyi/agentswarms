@@ -584,9 +584,19 @@ function WorkflowsPage() {
     onOpen: (id) => {
       if (!workflows.some((w) => w.id === id)) return false;
       void pick(id);
-      // A link to the workflow already on screen changes nothing, and still
-      // asked for it.
-      if (id === selectedId) void recordOpened("workflow", id);
+      // A link to the workflow already on screen still asked for it, and is
+      // read again: it can come from a change made somewhere else (an
+      // approved suggestion pausing it, R553), and showing the version
+      // loaded before that change would show it still running. Unsaved
+      // edits are asked about first, as opening another one does.
+      if (id === selectedId) {
+        void recordOpened("workflow", id);
+        void (async () => {
+          if (!(await mayDiscard("Reading it again replaces them."))) return;
+          setLoadNonce((n) => n + 1);
+          void reload();
+        })();
+      }
     },
   });
 

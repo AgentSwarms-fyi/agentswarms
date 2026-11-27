@@ -966,6 +966,20 @@ development branch and may be ahead of the latest tag.
 
 ### Fixed
 
+- **The assistant's proposals, as tried in the app** (R553 follow-up).
+  - A workflow page opened before a pause was approved still held the old
+    version, and its next Save quietly switched the schedule back on. Carrying
+    out a pause or resume now gives the workflow a new version, so that Save is
+    refused as changed elsewhere.
+  - Opening the workflow from the approval's message now reads it again.
+  - A proposal the tool refused (no schedule, not yours) no longer shows
+    "Asked for your approval".
+  - After two proposals in one conversation, the default model answered a
+    third request with "I have proposed…" without filing anything. The prompt
+    now asks for the call every time, and an answer that claims a proposal it
+    never filed is marked under it.
+  - Titles read "Pause the schedule of the workflow “X”" rather than putting a
+    possessive after the closing quote.
 - **A workflow with a step the database did not know yet failed in the
   database's words** (R542). A run on a database without the migration for a
   Kubeflow, Promote or Deploy step failed with "violates check constraint

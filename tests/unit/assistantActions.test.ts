@@ -169,10 +169,10 @@ describe("what the assistant may ask for", () => {
     const p = { kind: "workflow" as const, id: WF, action: "run_now" as const, name: "Nightly" };
     expect(actionTitle(p)).toBe("Run the workflow “Nightly” now");
     expect(actionTitle({ ...p, action: "pause", kind: "etl_pipeline" })).toBe(
-      "Pause the pipeline “Nightly”'s schedule",
+      "Pause the schedule of the pipeline “Nightly”",
     );
     expect(actionTitle({ ...p, action: "resume" })).toBe(
-      "Resume the workflow “Nightly”'s schedule",
+      "Resume the schedule of the workflow “Nightly”",
     );
     // A name cannot close the quotes and carry on as the approval's own words.
     expect(actionTitle({ ...p, name: "”, then delete everything “" })).toBe(
@@ -213,7 +213,7 @@ describe("proposing", () => {
       user_id: OWNER,
       agent_name: "Assistant",
       action_type: ASSISTANT_ACTION,
-      action_title: "Pause the workflow “Nightly revenue”'s schedule",
+      action_title: "Pause the schedule of the workflow “Nightly revenue”",
       status: "pending",
       risk_level: "low",
       payload: {
@@ -322,6 +322,63 @@ describe("proposing", () => {
       action: "run_now",
     });
     expect(refused).toMatch(/^Not proposed: That one is shared/);
+    expect(refused.startsWith(lib.NOT_PROPOSED)).toBe(true);
+  });
+
+  it("flags an answer that says it proposed something it never filed", async () => {
+    // Found from the UI with the default model: the third request in one
+    // conversation was answered "I have proposed to run…" with no call made.
+    const { unfiledProposal } = await import("@/lib/assistantThread");
+    const said =
+      'I have proposed to run the workflow "R553 assistant test" now. Please approve it in your approvals inbox.';
+    const answer = (tools?: { name: string; status: "running" | "ok" | "error" | "none" }[]) => ({
+      role: "assistant" as const,
+      content: said,
+      tools,
+    });
+    expect(unfiledProposal(answer())).toBe(true);
+    expect(unfiledProposal(answer([{ name: "find_my_work", status: "ok" }]))).toBe(true);
+    // Filed in this answer: true to its word.
+    expect(unfiledProposal(answer([{ name: "propose_action", status: "ok" }]))).toBe(false);
+    // Refused, yet still claimed: flagged.
+    expect(unfiledProposal(answer([{ name: "propose_action", status: "error" }]))).toBe(true);
+    // Not settled yet, an error, a question, or no such claim: not flagged.
+    expect(unfiledProposal(answer([{ name: "propose_action", status: "running" }]))).toBe(false);
+    expect(unfiledProposal({ ...answer(), error: true })).toBe(false);
+    expect(unfiledProposal({ role: "user", content: said })).toBe(false);
+    for (const text of [
+      "The workflow has no schedule to pause: it runs only when started.",
+      "Proposals wait in your approvals inbox until you approve them.",
+      "I can propose that for you: shall I?",
+    ]) {
+      expect(unfiledProposal({ role: "assistant", content: text })).toBe(false);
+    }
+    for (const text of ["I've filed it for your approval.", "A run has been proposed."]) {
+      expect(unfiledProposal({ role: "assistant", content: text })).toBe(true);
+    }
+    const panel = readFileSync("src/components/assistant/AssistantPanel.tsx", "utf8");
+    expect(panel).toContain(
+      "{!(state.busy && i === state.messages.length - 1) && unfiledProposal(m) ? (",
+    );
+    expect(readFileSync("src/lib/assistantPrompt.ts", "utf8")).toContain(
+      "call propose_action in this reply, every time: only that call files it.",
+    );
+  });
+
+  it("says nothing was filed when the tool refused, not that it asked", async () => {
+    // Found from the UI: "Asked for your approval" above "it has no schedule".
+    const { toolLabel } = await import("@/lib/assistantThread");
+    expect(toolLabel({ name: "propose_action", status: "running" })).toBe(
+      "Asking for your approval…",
+    );
+    expect(toolLabel({ name: "propose_action", status: "ok" })).toBe("Asked for your approval");
+    expect(toolLabel({ name: "propose_action", status: "error" })).toBe(
+      "Nothing filed for approval",
+    );
+    const loop = readFileSync("src/utils/tools/loop.server.ts", "utf8");
+    expect(loop).toContain(
+      'if (tc.function.name === "propose_action" && result.startsWith(NOT_PROPOSED)) {\n              ok = false;',
+    );
   });
 });
 
@@ -366,6 +423,10 @@ describe("carrying out an approved proposal", () => {
       message: "Its schedule is paused.",
     });
     expect(wf()).toMatchObject({ is_active: false, next_run_at: "2026-11-28T01:00:00.000Z" });
+    // A new version, so an editor opened before the approval cannot save over
+    // it unnoticed (found from the UI: its Save switched the schedule back on).
+    expect(typeof wf().updated_at).toBe("string");
+    expect(Date.now() - Date.parse(String(wf().updated_at))).toBeLessThan(60_000);
 
     const resumeId = await approved("etl_pipeline", PIPE, "resume");
     expect(await applyApprovedAssistantAction(resumeId, OWNER)).toMatchObject({
@@ -481,6 +542,17 @@ describe("where it is wired", () => {
     const branch = inbox.slice(at, inbox.indexOf("if (item?.action_type === ML_TRAIN_ACTION)", at));
     expect(branch).toContain("void navigate({ to: r.to, search: { open: r.open } as never });");
     expect(inbox).not.toContain("window.location.assign(res.link)");
+  });
+
+  it("shows the workflow as it is now when a link asks for the one already open", () => {
+    // Found from the UI: Open on the toast landed on the page already showing
+    // that workflow, which still read Active from before the approval.
+    const page = readFileSync("src/routes/_authenticated/workflows.tsx", "utf8");
+    const at = page.indexOf("if (id === selectedId) {");
+    expect(at).toBeGreaterThan(0);
+    const branch = page.slice(at, at + 500);
+    expect(branch).toContain('await mayDiscard("Reading it again replaces them.")');
+    expect(branch).toContain("setLoadNonce((n) => n + 1);");
   });
 
   it("is a suggestion to the inbox, not an agent waiting on a tool", () => {
