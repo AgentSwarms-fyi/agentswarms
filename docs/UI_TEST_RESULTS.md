@@ -15,6 +15,16 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-27 — R548: drift over time
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab, before migration 20261208000000 was applied. The model "revenue_facts plan classifier" has 11 batch runs with drift in the last 90 days (found with a read-only query).
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| The model → Predictions | **Drift over time**, under the live card | "Over the last 90 days: 11 batch runs measured, the highest PSI 6.33 on 2026-10-03; 2 days reached the alert threshold of 0.25. Live traffic history needs migration 20261208000000." |
+| Same | the chart | the batch dots could not be seen (the line's zero stroke and a white fill), and the one run at 6.33 put the 0.25 threshold and the 0.1 line on the floor of a linear axis (fixed: filled dots, a log axis ticked at powers of ten, the tooltip giving the real reading) |
+| Same, after the fix | the chart | three days of dots on a log axis from 0.01 to 10, the dashed alert line at 0.25 readable between them; the tooltip on the highest reads "2026-10-03 · version 8, 9" and "batch runs: 6.33" |
+
 ## 2026-11-27 — R547: forecasts with known-ahead drivers
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab. A test model was trained for real in the sandbox: "R547 forecast with drivers (test)", from analytics.revenue_facts (kept for review).

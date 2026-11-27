@@ -16,6 +16,10 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261208000000`** (R548) to keep a daily history of
+  live-traffic drift: it adds `ml_traffic_daily` (owner reads only). Until
+  then the Drift over time chart draws batch runs alone and says why; the
+  hourly check and its alerts are unchanged.
 - **Apply migration `20261207000000`** (R545) so the hourly live-traffic check
   can record its verdict and alert. It adds the `ml_traffic_checks` table
   (owner reads only) and an index for reading a model's recent requests.
@@ -319,6 +323,10 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Drift over time** (R548). The model's Predictions tab draws the last 90
+  days of drift: each batch run's PSI and each day's live-traffic PSI against
+  the alert threshold, the highest of a day rather than an average, with a
+  sentence saying what was measured and how many days crossed the line.
 - **Forecasts with known-ahead drivers** (R547). **Known ahead** in the
   wizard names up to ten number columns already planned for the periods ahead
   (a price, a promotion flag, a holiday count); their planned values sit in

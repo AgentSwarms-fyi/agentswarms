@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "drift-over-time",
+    date: "2026-11-27",
+    title: "Drift over time",
+    body: "A model's Predictions tab now charts the last 90 days of drift, batch runs and daily live traffic against the alert threshold, so you can see when a model started to move, not only that it has.",
+    link: { to: "/ml" },
+    cta: "Open ML models",
+  },
+  {
     id: "forecast-drivers",
     date: "2026-11-26",
     title: "Forecasts that know what is planned",

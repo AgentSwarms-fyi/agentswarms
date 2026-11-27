@@ -3576,6 +3576,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
     "terms": [
       "/api/ml/predict/status",
       "20261207000000",
+      "20261208000000",
       "CalibratedClassifierCV",
       "ML_DECAY_ALERT_RATIO",
       "ML_DRIFT_ALERT_PSI",

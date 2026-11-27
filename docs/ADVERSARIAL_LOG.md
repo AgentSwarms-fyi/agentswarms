@@ -109,6 +109,22 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-27 — R548: drift was a reading, never a history
+
+**Why this round.** A model's drift was a badge per batch run and, since R545, the latest live-traffic verdict. Neither says since when, or whether last week's alert was one bad batch or a slide. Read as the person deciding whether to retrain.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| No view of drift over time | S3 | **Found by the round's question.** The Predictions tab charts 90 days: batch runs as dots, daily live traffic as a line, against the threshold. The hourly check keeps each day's last verdict. |
+| An average per day would hide the run that crossed the line | S3 | **Found in design.** A day shows its highest batch run, and a canary day the higher of its versions. A mutant keeping the last run instead survived the first fixture, where the highest was also the last; the fixture now puts the highest first. |
+| Batch and live would have been one number | S4 | **Found in design.** They are different rows (a table at once, a day of requests), so they are two series and never averaged. |
+| The threshold sat on the floor, and the dots could not be seen | S3 | **Found in the UI test**, on a real model with a run at PSI 6.33. Now a log axis ticked at powers of ten, with filled dots, and the tooltip giving the real reading. |
+
+**Checked and sound.**
+- **Owner only**, like the live card: the daily verdicts sum every caller's requests.
+- **Before migration 20261208000000** the batch runs still draw and the card says why; the hourly check and its alerts go on (tested).
+- **One row per version per day**, replaced by the day's later checks (tested, and two mutations caught).
+
 ### 2026-11-27 — R547: a forecast could not use what was already planned
 
 **Why this round.** Left open since R526: a forecast learned only from its own past, so a planned price change, a promotion or a holiday could not move it. Read as a planner who knows next month's promotions.

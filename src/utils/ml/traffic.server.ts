@@ -222,6 +222,7 @@ export async function runTrafficDriftChecks(
         }
         return { checked, alerted };
       }
+      await recordDay(model, t, now);
       if (t.drift.score < limits.mlDriftAlertPsi) continue;
       if (await claimAlert(t.versionId, now)) {
         alerted++;
@@ -230,6 +231,42 @@ export async function runTrafficDriftChecks(
     }
   }
   return { checked, alerted };
+}
+
+let missingDailySaid = false;
+
+/**
+ * The day's verdict for one version (R548): the latest check of the day
+ * replaces the earlier ones, so a day reads as it ended. Its own migration
+ * (20261208000000); without it the history is not kept and nothing else
+ * changes.
+ */
+async function recordDay(
+  model: { id: string; user_id: string },
+  t: VersionTraffic & { drift: TrafficDrift | null },
+  now: Date,
+): Promise<void> {
+  if (!t.drift) return;
+  const { error } = await supabaseAdmin.from("ml_traffic_daily").upsert(
+    {
+      version_id: t.versionId,
+      day: now.toISOString().slice(0, 10),
+      model_id: model.id,
+      user_id: model.user_id,
+      requests: t.requests,
+      row_count: t.rows,
+      score: t.drift.score,
+      features: t.drift.features as unknown as Json,
+      checked_at: now.toISOString(),
+    },
+    { onConflict: "version_id,day" },
+  );
+  if (error && !missingDailySaid) {
+    missingDailySaid = true;
+    console.warn(
+      `[ml-traffic] daily history not kept: ${error.message} — it needs migration 20261208000000`,
+    );
+  }
 }
 
 /**

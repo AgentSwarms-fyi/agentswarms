@@ -223,15 +223,17 @@ vi.mock("@/integrations/supabase/client.server", () => {
       this.patch = p;
       return this;
     }
-    upsert(r: Record<string, unknown>) {
+    conflict = ["version_id"];
+    upsert(r: Record<string, unknown>, o?: { onConflict?: string }) {
       this.op = "upsert";
       this.patch = r;
+      if (o?.onConflict) this.conflict = o.onConflict.split(",");
       return this;
     }
     exec() {
       const t = (db.tables[this.table] ??= []);
       if (this.op === "upsert") {
-        const i = t.findIndex((x) => x.version_id === this.patch.version_id);
+        const i = t.findIndex((x) => this.conflict.every((k) => x[k] === this.patch[k]));
         if (i >= 0) t[i] = { ...t[i], ...this.patch };
         else t.push({ alerted_at: null, ...this.patch });
         return [this.patch];
@@ -324,6 +326,7 @@ function seed(reqs: Row[]) {
     ml_model_versions: [{ id: "v-prod", version: 3, feature_stats: STATS }],
     ml_predictions: reqs,
     ml_traffic_checks: [],
+    ml_traffic_daily: [],
   };
 }
 
@@ -479,6 +482,40 @@ describe("the hourly check", () => {
     seed(calm);
     expect(await runTrafficDriftChecks(NOW)).toEqual({ checked: 1, alerted: 0 });
     expect(db.tables.ml_traffic_checks[0].score as number).toBeLessThan(0.25);
+  });
+});
+
+describe("the day's verdict, kept for the history (R548)", () => {
+  it("keeps one row per version per day, the day's last check", async () => {
+    seed(requests());
+    await runTrafficDriftChecks(NOW);
+    expect(db.tables.ml_traffic_daily).toEqual([
+      expect.objectContaining({
+        version_id: "v-prod",
+        day: "2026-11-26",
+        model_id: MODEL.id,
+        user_id: OWNER,
+        requests: 260,
+        row_count: 260,
+        score: EXPECTED.score,
+      }),
+    ]);
+    // An hour on, the same day: replaced, not added.
+    const later = new Date(NOW.getTime() + 3_600_000);
+    await runTrafficDriftChecks(later);
+    expect(db.tables.ml_traffic_daily).toHaveLength(1);
+    expect(db.tables.ml_traffic_daily[0].checked_at).toBe(later.toISOString());
+    // The next day: a second row.
+    const tomorrow = new Date(NOW.getTime() + 13 * 3_600_000);
+    await runTrafficDriftChecks(tomorrow);
+    expect(db.tables.ml_traffic_daily.map((r) => r.day)).toEqual(["2026-11-26", "2026-11-27"]);
+  });
+
+  it("before its migration: no history, and the check and its alert go on", async () => {
+    seed(requests());
+    db.missing.add("ml_traffic_daily");
+    expect(await runTrafficDriftChecks(NOW)).toEqual({ checked: 1, alerted: 1 });
+    expect(db.tables.ml_traffic_checks).toHaveLength(1);
   });
 });
 

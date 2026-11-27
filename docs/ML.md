@@ -900,6 +900,18 @@ hours of them summed and measured (R545).
   model's Predictions tab, and travels with the model to agents, the AI
   Analyst and the Playground: the headline and its PSI, not the features.
 
+**Drift over time** (R548), under the card on the Predictions tab, draws the
+last 90 days: each batch run's PSI as a dot, and each day's live-traffic PSI
+as a line, against the alert threshold. Several runs on one day show the
+highest, because an average would hide the run that crossed the line; a
+canary's day shows the higher of its two versions, and the tooltip names
+both. The two are drawn apart, not averaged into one, because a table scored
+at once and a day of requests are different rows. The sentence above the
+chart says how much was measured, the highest of each and on which day, and
+how many days reached the threshold. The day's live verdict is kept in
+`ml_traffic_daily` (migration `20261208000000`, the owner reads only); until
+it is applied the chart draws the batch runs alone and says why.
+
 The hourly check records its verdict in `ml_traffic_checks`, which needs
 migration `20261207000000`. Without it the card still measures on demand; the
 check records nothing and alerts nobody.

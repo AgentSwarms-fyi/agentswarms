@@ -777,3 +777,94 @@ export const mlLiveTraffic = createServerFn({ method: "POST" })
       };
     },
   );
+
+// ── Drift over time (R548) ──────────────────────────────────────────────────
+
+export type DriftHistoryView = {
+  days: number;
+  threshold: number;
+  moderate: number;
+  batch: { at: string; score: number; version: number | null }[];
+  daily: { day: string; score: number | null; rows: number; version: number | null }[];
+  /** False before migration 20261208000000: live traffic has no history yet. */
+  dailyKept: boolean;
+};
+
+/**
+ * A model's drift over the last 90 days, for its Predictions tab: each batch
+ * run's figure and each day's live-traffic verdict. Its OWNER only, like the
+ * live card: the daily verdicts sum every caller's requests.
+ */
+export const mlDriftHistory = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), modelId: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; history: DriftHistoryView | null } | { ok: false; error: string }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { data: model } = await supabaseAdmin
+        .from("ml_models")
+        .select("id")
+        .eq("id", data.modelId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (!model) return { ok: true, history: null };
+      const { DRIFT_HISTORY_DAYS } = await import("@/lib/mlDriftHistory");
+      const { ML_DRIFT_MODERATE } = await import("@/utils/ml/types");
+      const { getPlatformResources } = await import("@/utils/notebookRuntime/config.server");
+      const since = new Date(Date.now() - DRIFT_HISTORY_DAYS * 86_400_000);
+      const [runs, daily, limits] = await Promise.all([
+        supabaseAdmin
+          .from("ml_predictions")
+          .select("created_at, drift_score, version_id")
+          .in("model_id", [model.id])
+          .eq("status", "succeeded")
+          .not("drift_score", "is", null)
+          .gte("created_at", since.toISOString())
+          .order("created_at", { ascending: true })
+          .limit(1000),
+        supabaseAdmin
+          .from("ml_traffic_daily")
+          .select("day, score, row_count, version_id")
+          .in("model_id", [model.id])
+          .gte("day", since.toISOString().slice(0, 10))
+          .order("day", { ascending: true })
+          .limit(1000),
+        getPlatformResources(),
+      ]);
+      if (runs.error) return { ok: false, error: runs.error.message };
+      const ids = [
+        ...new Set([
+          ...(runs.data ?? []).map((r) => r.version_id),
+          ...(daily.error ? [] : (daily.data ?? [])).map((d) => d.version_id),
+        ]),
+      ].filter((v): v is string => Boolean(v));
+      const { data: versions } = ids.length
+        ? await supabaseAdmin.from("ml_model_versions").select("id, version").in("id", ids)
+        : { data: [] as { id: string; version: number }[] };
+      const number = new Map((versions ?? []).map((v) => [v.id, v.version]));
+      return {
+        ok: true,
+        history: {
+          days: DRIFT_HISTORY_DAYS,
+          threshold: limits.mlDriftAlertPsi,
+          moderate: ML_DRIFT_MODERATE,
+          batch: (runs.data ?? []).map((r) => ({
+            at: r.created_at,
+            score: Number(r.drift_score),
+            version: r.version_id ? (number.get(r.version_id) ?? null) : null,
+          })),
+          // Before migration 20261208000000 there is no table: no history.
+          daily: (daily.error ? [] : (daily.data ?? [])).map((d) => ({
+            day: d.day,
+            score: d.score,
+            rows: d.row_count,
+            version: number.get(d.version_id) ?? null,
+          })),
+          dailyKept: !daily.error,
+        },
+      };
+    },
+  );

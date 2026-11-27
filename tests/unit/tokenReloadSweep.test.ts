@@ -270,6 +270,8 @@ const REVIEWED: Record<string, number> = {
   // R544: lists the workflows that start on this model's alerts. It holds
   // nothing a person types, so a reload only refreshes the list.
   "src/components/ml/AlertPipelinesCard.tsx": 1,
+  // R548: reads the drift history; nothing on it is typed.
+  "src/components/ml/DriftHistoryCard.tsx": 1,
   "src/components/ml/FeatureViewsPanel.tsx": 2,
   // R545: reads the last day of live traffic; nothing on it is typed, so a
   // reload only refreshes the figures.

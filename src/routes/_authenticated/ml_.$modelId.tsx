@@ -93,6 +93,7 @@ import { ModelFeatureView } from "@/components/ml/FeatureViewsPanel";
 import { SchedulesPanel } from "@/components/ml/SchedulesPanel";
 import { AlertPipelinesCard } from "@/components/ml/AlertPipelinesCard";
 import { LiveTrafficCard } from "@/components/ml/LiveTrafficCard";
+import { DriftHistoryCard } from "@/components/ml/DriftHistoryCard";
 import { ModelLineageCard } from "@/components/ml/ModelLineageCard";
 import { MlflowExportButton, MlflowImport } from "@/components/ml/MlflowControls";
 import { MlflowTrackingStrip, MlflowVersionCell } from "@/components/ml/MlflowTracking";
@@ -707,6 +708,8 @@ function ModelPage() {
           {/* The summary before the runs: what online requests look like now
               (R545). The owner's only: it sums every caller's requests. */}
           {!shared ? <LiveTrafficCard token={token} modelId={model.id} /> : null}
+          {/* The same measure over time (R548), batch runs and daily live traffic. */}
+          {!shared ? <DriftHistoryCard token={token} modelId={model.id} /> : null}
           <PredictionsPanel token={token} model={model} versions={versions} shared={shared} />
         </TabsContent>
 

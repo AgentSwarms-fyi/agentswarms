@@ -83,6 +83,12 @@ function MlTrustPage() {
           hourly verdict needs migration <C>20261207000000</C>.
         </li>
         <li>
+          <strong>Drift over time</strong> draws the last 90 days under the card: each batch
+          run&apos;s PSI as a dot and each day&apos;s live traffic as a line, against the alert
+          threshold, with the highest of a day shown, never an average. The daily verdicts need
+          migration <C>20261208000000</C>.
+        </li>
+        <li>
           A drifted verdict from the last two days is part of the model&apos;s health: it is listed
           under ML operations → <strong>Needs a look</strong> and travels with the model to agents,
           the AI Analyst and the Playground, as a headline and a PSI without the features.

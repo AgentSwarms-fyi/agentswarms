@@ -6125,6 +6125,42 @@ export type Database = {
           },
         ];
       };
+      ml_traffic_daily: {
+        Row: {
+          version_id: string;
+          day: string;
+          model_id: string;
+          user_id: string;
+          requests: number;
+          row_count: number;
+          score: number | null;
+          features: Json | null;
+          checked_at: string;
+        };
+        Insert: {
+          version_id: string;
+          day: string;
+          model_id: string;
+          user_id: string;
+          requests: number;
+          row_count: number;
+          score?: number | null;
+          features?: Json | null;
+          checked_at?: string;
+        };
+        Update: {
+          version_id?: string;
+          day?: string;
+          model_id?: string;
+          user_id?: string;
+          requests?: number;
+          row_count?: number;
+          score?: number | null;
+          features?: Json | null;
+          checked_at?: string;
+        };
+        Relationships: [];
+      };
       ml_traffic_checks: {
         Row: {
           version_id: string;
