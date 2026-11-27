@@ -26,6 +26,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { FILE_INPUT_ACCEPT, FILE_INPUT_MAX_CHARS } from "@/lib/swarmFileInput";
+import { shownFieldLabel } from "@/lib/swarmNames";
 import { extractImages } from "./runImages";
 import type { FoundImage } from "./runImages";
 
@@ -526,7 +527,7 @@ function StartInputForm({
       {fields.map((f) => (
         <div key={f.name}>
           <label className="text-[10px] text-muted-foreground mb-0.5 block">
-            {f.label || f.name}
+            {shownFieldLabel(f)}
             {f.required && <span className="text-destructive"> *</span>}
           </label>
           {f.type === "file" ? (

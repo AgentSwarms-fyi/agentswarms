@@ -10,6 +10,7 @@
 // open frameworks (LangGraph-style nodes/edges, plain JSON, no binary blobs).
 import type { Node, Edge } from "@xyflow/react";
 import type { SwarmNodeData } from "@/lib/swarmRuntime";
+import { repairSwarmNodes } from "@/lib/swarmNames";
 import { clampName, hasVisibleName } from "@/lib/visibleName";
 
 export const SWARM_SCHEMA_URL = "https://agentswarms.fyi/schemas/swarm.v1.json";
@@ -262,7 +263,9 @@ export function importSwarm(raw: unknown): ImportedSwarm {
     // past the limit refused by the database.
     name: hasVisibleName(obj.name) ? clampName(obj.name) : "Imported Swarm",
     description: typeof obj.description === "string" ? obj.description : undefined,
-    nodes,
+    // A node's blank or too long name is repaired the same way a save
+    // repairs one, so the file is imported rather than refused.
+    nodes: repairSwarmNodes(nodes),
     edges,
   };
 }

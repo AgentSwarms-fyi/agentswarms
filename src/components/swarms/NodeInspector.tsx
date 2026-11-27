@@ -5,6 +5,18 @@ import type { Node } from "@xyflow/react";
 import type { SwarmNodeData, SwarmToolId, EvalMetricConfig } from "@/lib/swarmRuntime";
 import { DEFAULT_EVAL_METRICS, runSwarm } from "@/lib/swarmRuntime";
 import {
+  FIELD_LABEL_MAX_LENGTH,
+  FIELD_NAME_MAX_LENGTH,
+  NODE_LABEL_MAX_LENGTH,
+  cleanFieldName,
+  fieldLabelToCommit,
+  fieldNameProblem,
+  nameDraft,
+  nextFieldName,
+  nodeLabelToCommit,
+  shownNodeLabel,
+} from "@/lib/swarmNames";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -395,6 +407,57 @@ type Props = {
   onClose: () => void;
 };
 
+/**
+ * An edit of a name that is never left without one (src/lib/swarmNames.ts).
+ * It writes only what `toCommit` accepts, and only from typing. While the text
+ * is not accepted, the name keeps its last value, and leaving the field puts
+ * that value back. Leaving never writes, so it cannot write to the wrong node
+ * when the selection moves to another one. A name set elsewhere (importing an
+ * agent into the node) replaces what the field shows.
+ */
+function useNameEdit(
+  value: string,
+  onCommit: (name: string) => void,
+  toCommit: (typed: string) => string | null,
+  clean: (typed: string) => string = (typed) => typed,
+) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft((d) => nameDraft(d, value)), [value]);
+  const accepted = toCommit(draft);
+  return {
+    draft,
+    accepted: accepted !== null,
+    inputProps: {
+      value: draft,
+      "aria-invalid": accepted === null || undefined,
+      onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+        const typed = clean(e.target.value);
+        setDraft(typed);
+        const name = toCommit(typed);
+        if (name !== null && name !== value) onCommit(name);
+      },
+      onBlur: () => setDraft(accepted ?? value),
+    },
+  };
+}
+
+/** The node's Label field: never blank, at most 120 characters. */
+function NodeLabelField({ label, onCommit }: { label: string; onCommit: (label: string) => void }) {
+  const edit = useNameEdit(label, onCommit, nodeLabelToCommit);
+  return (
+    <>
+      <Input {...edit.inputProps} maxLength={NODE_LABEL_MAX_LENGTH} />
+      {!edit.accepted && (
+        <p className="text-[11px] text-destructive">
+          {nodeLabelToCommit(label) === null
+            ? "A node needs a name."
+            : `A node needs a name. It keeps “${label}” until you type one.`}
+        </p>
+      )}
+    </>
+  );
+}
+
 export function NodeInspector({
   node,
   variables = [],
@@ -624,7 +687,7 @@ export function NodeInspector({
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
             {data.kind} node
           </p>
-          <p className="text-sm font-semibold truncate">{data.label}</p>
+          <p className="text-sm font-semibold truncate">{shownNodeLabel(data.label)}</p>
         </div>
         <div className="flex items-center gap-1">
           {onDuplicate && (
@@ -655,7 +718,7 @@ export function NodeInspector({
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 text-sm">
         <Section label="Label">
-          <Input value={data.label} onChange={(e) => onChange({ label: e.target.value })} />
+          <NodeLabelField label={data.label} onCommit={(label) => onChange({ label })} />
         </Section>
 
         {TESTABLE_KINDS.has(data.kind) && <NodeTestButton node={node} />}
@@ -2426,7 +2489,9 @@ function NodeTestButton({ node }: { node: Node<SwarmNodeData> }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-base">Test “{node.data.label}”</DialogTitle>
+            <DialogTitle className="text-base">
+              Test “{shownNodeLabel(node.data.label)}”
+            </DialogTitle>
             <DialogDescription className="text-xs">
               Runs just this node in isolation with the input below (seeded as{" "}
               <code className="font-mono">input</code>). References to other flow variables
@@ -2623,71 +2688,13 @@ function InputFieldsPanel({
           other variable.
         </p>
         {fields.map((f, i) => (
-          <div key={i} className="rounded-md border border-border/40 p-2 space-y-1.5">
-            <div className="flex gap-1.5">
-              <Input
-                value={f.name}
-                onChange={(e) => update(i, { name: e.target.value.replace(/[^a-zA-Z0-9_]/g, "") })}
-                placeholder="name"
-                className="w-28 font-mono text-xs"
-              />
-              <Select
-                value={f.type}
-                onValueChange={(v) => update(i, { type: v as InputFieldT["type"] })}
-              >
-                <SelectTrigger className="h-8 flex-1 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {["text", "textarea", "number", "select", "file"].map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                aria-label={f.name ? `Remove the field ${f.name}` : "Remove this field"}
-                title="Remove"
-                onClick={() => onChange({ inputFields: fields.filter((_, idx) => idx !== i) })}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <Input
-              value={f.label ?? ""}
-              onChange={(e) => update(i, { label: e.target.value })}
-              placeholder="Label (shown to the user)"
-              className="text-xs"
-            />
-            {f.type === "select" && (
-              <Input
-                value={(f.options ?? []).join(", ")}
-                onChange={(e) =>
-                  update(i, {
-                    options: e.target.value
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  })
-                }
-                placeholder="Option A, Option B, Option C"
-                className="text-xs"
-              />
-            )}
-            <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                className="h-3 w-3 accent-primary"
-                checked={!!f.required}
-                onChange={(e) => update(i, { required: e.target.checked })}
-              />
-              Required
-            </label>
-          </div>
+          <InputFieldRow
+            key={i}
+            field={f}
+            otherNames={fields.filter((_, idx) => idx !== i).map((o) => o.name)}
+            onUpdate={(patch) => update(i, patch)}
+            onRemove={() => onChange({ inputFields: fields.filter((_, idx) => idx !== i) })}
+          />
         ))}
         <Button
           variant="outline"
@@ -2695,7 +2702,10 @@ function InputFieldsPanel({
           className="h-7 text-xs"
           onClick={() =>
             onChange({
-              inputFields: [...fields, { name: `field_${fields.length + 1}`, type: "text" }],
+              inputFields: [
+                ...fields,
+                { name: nextFieldName(fields.map((f) => f.name)), type: "text" },
+              ],
             })
           }
         >
@@ -2706,7 +2716,102 @@ function InputFieldsPanel({
   );
 }
 
-// ───────────────────── Execute Swarm (sub-flow) panel ─────────────────────
+/**
+ * One start-form field. Its name is required and unique on the node: the run
+ * stores the field's value under it, so an unnamed field's value went where no
+ * prompt could read it, and two fields of one name shared one value.
+ */
+function InputFieldRow({
+  field: f,
+  otherNames,
+  onUpdate,
+  onRemove,
+}: {
+  field: InputFieldT;
+  otherNames: string[];
+  onUpdate: (patch: Partial<InputFieldT>) => void;
+  onRemove: () => void;
+}) {
+  const name = useNameEdit(
+    f.name,
+    (next) => onUpdate({ name: next }),
+    (typed) => (fieldNameProblem(typed, otherNames) === null ? typed : null),
+    cleanFieldName,
+  );
+  const nameProblem = fieldNameProblem(name.draft, otherNames);
+  const keeps = fieldNameProblem(f.name, otherNames) === null;
+  return (
+    <div className="rounded-md border border-border/40 p-2 space-y-1.5">
+      <div className="flex gap-1.5">
+        <Input
+          {...name.inputProps}
+          maxLength={FIELD_NAME_MAX_LENGTH}
+          placeholder="name"
+          className="w-28 font-mono text-xs"
+        />
+        <Select value={f.type} onValueChange={(v) => onUpdate({ type: v as InputFieldT["type"] })}>
+          <SelectTrigger className="h-8 flex-1 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {["text", "textarea", "number", "select", "file"].map((t) => (
+              <SelectItem key={t} value={t}>
+                {t}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+          aria-label={f.name ? `Remove the field ${f.name}` : "Remove this field"}
+          title="Remove"
+          onClick={onRemove}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      {nameProblem && (
+        <p className="text-[11px] text-destructive">
+          {keeps ? `${nameProblem} It stays ${f.name} until you change it.` : nameProblem}
+        </p>
+      )}
+      <Input
+        value={f.label ?? ""}
+        onChange={(e) => onUpdate({ label: fieldLabelToCommit(e.target.value) })}
+        maxLength={FIELD_LABEL_MAX_LENGTH}
+        placeholder="Label (shown to the user)"
+        className="text-xs"
+      />
+      {f.type === "select" && (
+        <Input
+          value={(f.options ?? []).join(", ")}
+          onChange={(e) =>
+            onUpdate({
+              options: e.target.value
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean),
+            })
+          }
+          placeholder="Option A, Option B, Option C"
+          className="text-xs"
+        />
+      )}
+      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer">
+        <input
+          type="checkbox"
+          className="h-3 w-3 accent-primary"
+          checked={!!f.required}
+          onChange={(e) => onUpdate({ required: e.target.checked })}
+        />
+        Required
+      </label>
+    </div>
+  );
+}
+
 function SubSwarmPanel({
   data,
   onChange,
