@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "share-personal-data",
+    date: "2026-11-28",
+    title: "Personal data in your shares",
+    body: "Tables you share outside the platform are now checked for personal data from their values. When recipients can read some, you are asked in your approvals whether to mask it.",
+    link: { to: "/docs/lakehouse" },
+    cta: "How it works",
+  },
+  {
     id: "assistant-actions",
     date: "2026-11-27",
     title: "Ask the assistant to run or pause",

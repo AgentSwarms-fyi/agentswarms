@@ -344,6 +344,20 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Personal data in lakehouse shares** (R554). A table in a Delta Sharing
+  share went out with whatever the table's policy and the share's own masks
+  left visible, and those were chosen by column name: a `contact` column of
+  email addresses reached recipients as it was. A few times a day the
+  scheduler now samples up to 500 rows of each table in a share with a live
+  token, as its owner, classifies the columns from their values (the same
+  classifier shared datasets use), sees through what the share and the
+  table's policy already mask, and suggests masking the rest to the share's
+  owner in the approvals inbox. Approving masks them in that share from the
+  recipients' next read and drops the old snapshots; a column suggested once
+  is never suggested again. The Shares dialog can also mask more columns of a
+  shared table in place, through the same audited action (masks only grow
+  there). `/lakehouse?open=share:<id>` opens the Shares dialog on one share.
+  No migration.
 - **The assistant can ask to run or pause something** (R553). Asked to run
   one of the reader's own workflows or pipelines now, or to pause or resume
   its schedule, the assistant proposes it with a new `propose_action` tool:

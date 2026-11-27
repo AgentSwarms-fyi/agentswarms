@@ -436,6 +436,26 @@ function LakehouseDocsPage() {
         ]}
       />
 
+      <H3 id="share-personal-data">Personal data in a share</H3>
+      <P>
+        A recipient reads what the table&apos;s policy and the share leave visible, so a column of
+        email addresses named <C>contact</C> goes out as it is unless something masks it. A few
+        times a day the scheduler reads up to 500 rows of every table in a share that has a live
+        token (not revoked, not expired), as its owner, and looks at the values, not only the names,
+        the same way a shared dataset is checked. When a personal column reaches the recipients, the
+        share&apos;s owner gets a suggestion in the approvals inbox and a notification, naming the
+        columns and what they hold. Approving masks them in that share from the recipients&apos;
+        next read (blank, or scrambled if the table is shared that way); your own queries and the
+        table are unchanged. Rejecting leaves the share as it is, and you are not asked about those
+        columns again.
+      </P>
+      <P>
+        You can mask more columns yourself too: in <strong>Shares</strong>, the eye button on a
+        shared table takes the column names. Both ways go through one action, checked against who
+        owns the share, and both are audited. Masks only add there; to show a column again, remove
+        the table from the share and add it back.
+      </P>
+
       <H2 id="iceberg">Iceberg interop</H2>
       <P>
         The lakehouse speaks Apache Iceberg in both directions through the engine&apos;s iceberg

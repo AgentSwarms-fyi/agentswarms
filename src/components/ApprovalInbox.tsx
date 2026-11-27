@@ -6,6 +6,8 @@ import { useLiveRows } from "@/hooks/use-live-rows";
 import { mlApplyApprovedPromotion } from "@/utils/ml.functions";
 import { applyApprovedColumnHideFn } from "@/utils/sensitiveData.functions";
 import { HIDE_COLUMNS_ACTION, suggestedColumns, suggestedDatasetId } from "@/lib/sensitiveData";
+import { MASK_SHARE_ACTION, shareIntent, shareMaskFromPayload } from "@/lib/lakeShareMasking";
+import { applyApprovedShareMaskFn } from "@/utils/lakehouse/shareMasking.functions";
 import { fixFromPayload, RUN_FIX_ACTION } from "@/lib/runFixes";
 import { applyApprovedRunFixFn } from "@/utils/runFixes.functions";
 import { ML_TRAIN_ACTION, proposalFromPayload } from "@/lib/mlProposals";
@@ -81,6 +83,7 @@ const ACTION_ICON: Record<string, LucideIcon> = {
   external_api: Globe,
   "ml.promote": Rocket,
   [HIDE_COLUMNS_ACTION]: EyeOff,
+  [MASK_SHARE_ACTION]: EyeOff,
   [RUN_FIX_ACTION]: Wrench,
   [ML_TRAIN_ACTION]: FlaskConical,
   [ASSISTANT_ACTION]: MessageSquareText,
@@ -101,7 +104,12 @@ function fixLink(payload: unknown): { to: string; open: string } | null {
  */
 function waitingWord(actionType: string): string {
   if (actionType === "ml.promote") return "asked";
-  if (actionType === HIDE_COLUMNS_ACTION || actionType === RUN_FIX_ACTION) return "suggested";
+  if (
+    actionType === HIDE_COLUMNS_ACTION ||
+    actionType === MASK_SHARE_ACTION ||
+    actionType === RUN_FIX_ACTION
+  )
+    return "suggested";
   // An agent suggested a model in chat (R527); nothing is stuck waiting.
   if (actionType === ML_TRAIN_ACTION) return "proposed";
   // The assistant asked for one of a few changes (R553).
@@ -113,6 +121,7 @@ function waitingWord(actionType: string): string {
 const fromAnAgent = (actionType: string) =>
   actionType !== "ml.promote" &&
   actionType !== HIDE_COLUMNS_ACTION &&
+  actionType !== MASK_SHARE_ACTION &&
   actionType !== RUN_FIX_ACTION &&
   actionType !== ML_TRAIN_ACTION &&
   actionType !== ASSISTANT_ACTION;
@@ -120,6 +129,7 @@ const fromAnAgent = (actionType: string) =>
 /** A yes or no that is a suggestion, not a run waiting: fixed words in its toast. */
 const isSuggestion = (actionType: string) =>
   actionType === HIDE_COLUMNS_ACTION ||
+  actionType === MASK_SHARE_ACTION ||
   actionType === RUN_FIX_ACTION ||
   actionType === ML_TRAIN_ACTION ||
   actionType === ASSISTANT_ACTION;
@@ -146,6 +156,7 @@ export function ApprovalInbox() {
   const resumeRunFn = useServerFn(resumeApprovedSwarmRun);
   const applyPromotionFn = useServerFn(mlApplyApprovedPromotion);
   const applyHideFn = useServerFn(applyApprovedColumnHideFn);
+  const applyShareMaskFn = useServerFn(applyApprovedShareMaskFn);
   const applyRunFixFn = useServerFn(applyApprovedRunFixFn);
   const applyTrainingFn = useServerFn(applyApprovedTrainingFn);
   const applyAssistantFn = useServerFn(applyApprovedAssistantActionFn);
@@ -402,6 +413,38 @@ export function ApprovalInbox() {
       return;
     }
 
+    // Personal data a lakehouse share's recipients can read (R554): the server
+    // masks it in that share, and the message says what it did.
+    if (item?.action_type === MASK_SHARE_ACTION) {
+      const p = shareMaskFromPayload(item.payload);
+      const where = p ? `${p.schema}.${p.table}` : item.agent_name;
+      if (status === "rejected") {
+        toast(`Kept as it is: ${where}`, {
+          description:
+            "The share's recipients still read those columns. You will not be asked about them again.",
+        });
+        return;
+      }
+      try {
+        const res = await applyShareMaskFn({ data: { approvalId: id } });
+        if (res.ok) {
+          toast.success(`Masked in ${where}`, {
+            description:
+              res.added.length === 0
+                ? "The share already masked those columns."
+                : `${res.added.join(", ")} ${res.added.length === 1 ? "is" : "are"} masked for the share's recipients from their next read. Your own queries still see ${res.added.length === 1 ? "it" : "them"}.`,
+          });
+        } else {
+          toast.warning("Decision saved, but nothing was masked", { description: res.error });
+        }
+      } catch (e) {
+        toast.warning("Decision saved, but nothing was masked", {
+          description: (e as Error).message,
+        });
+      }
+      return;
+    }
+
     // A model promotion is not an agent resuming, and saying so would be the
     // kind of small lie that makes a reader distrust the rest of the sentence.
     const isPromotion = item?.action_type === "ml.promote";
@@ -525,8 +568,12 @@ export function ApprovalInbox() {
             <div className="p-4 space-y-3">
               {approvals.map((ap) => {
                 const Icon = ACTION_ICON[ap.action_type] ?? Globe;
+                const shareMask =
+                  ap.action_type === MASK_SHARE_ACTION ? shareMaskFromPayload(ap.payload) : null;
                 const columns =
-                  ap.action_type === HIDE_COLUMNS_ACTION ? suggestedColumns(ap.payload) : [];
+                  ap.action_type === HIDE_COLUMNS_ACTION
+                    ? suggestedColumns(ap.payload)
+                    : (shareMask?.findings ?? []);
                 return (
                   <div
                     key={ap.id}
@@ -589,7 +636,12 @@ export function ApprovalInbox() {
 
                       {columns.length > 0 ? (
                         <div className="space-y-1.5">
-                          <ul className="space-y-1 text-xs" aria-label="Columns it would hide">
+                          <ul
+                            className="space-y-1 text-xs"
+                            aria-label={
+                              shareMask ? "Columns it would mask" : "Columns it would hide"
+                            }
+                          >
                             {columns.map((c) => (
                               <li key={c.column} className="leading-5">
                                 <span className="font-medium">{c.column}</span>{" "}
@@ -597,6 +649,16 @@ export function ApprovalInbox() {
                               </li>
                             ))}
                           </ul>
+                          {shareMask && (
+                            <Link
+                              to="/lakehouse"
+                              search={{ open: shareIntent(shareMask.share_id) } as never}
+                              onClick={() => setOpen(false)}
+                              className="inline-block text-xs text-primary underline-offset-2 hover:underline"
+                            >
+                              Open the share
+                            </Link>
+                          )}
                           {suggestedDatasetId(ap.payload) && (
                             <Link
                               to="/data-sql/$datasetId"

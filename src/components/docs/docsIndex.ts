@@ -2844,6 +2844,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "bucket(N)",
       "cached",
       "change-me",
+      "contact",
       "count(*)",
       "day",
       "day(ts)",
@@ -2954,6 +2955,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "sharing",
         "text": "Sharing tables outside the platform",
         "level": 2
+      },
+      {
+        "id": "share-personal-data",
+        "text": "Personal data in a share",
+        "level": 3
       },
       {
         "id": "iceberg",

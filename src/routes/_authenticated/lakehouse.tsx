@@ -6,6 +6,7 @@ import { formatUsd } from "@/lib/usd";
 import { PageHeader } from "@/components/PageHeader";
 import { confirmAsk } from "@/components/ui/confirm-dialog";
 import { SharesDialog } from "@/components/lakehouse/SharesDialog";
+import { shareIdFromIntent } from "@/lib/lakeShareMasking";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -172,6 +173,9 @@ function LakehousePage() {
   /** Why the overview could not be read, or null. Rendered — see reload(). */
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<{ schema: string; table: string } | null>(null);
+  // A share a link asked for (`?open=share:<id>`, from a suggestion to mask
+  // its columns), handed to the Shares dialog once.
+  const [askedShare, setAskedShare] = useState<string | null>(null);
   const [tab, setTab] = useState("query");
   const [sql, setSql] = useState("");
   // A table is only ever chosen by the reader, from the list or from a link.
@@ -224,6 +228,11 @@ function LakehousePage() {
     ready: data !== null,
     noun: "table",
     onOpen: (id) => {
+      const shareId = shareIdFromIntent(id);
+      if (shareId) {
+        setAskedShare(shareId);
+        return;
+      }
       const dot = id.indexOf(".");
       const schema = id.slice(0, dot);
       const table = id.slice(dot + 1);
@@ -256,6 +265,8 @@ function LakehousePage() {
               <SharesDialog
                 tables={data.tables.map((t) => ({ schema: t.schema, name: t.name }))}
                 ownedSchemas={data.schemas.filter((s) => s.owned).map((s) => s.name)}
+                openShareId={askedShare}
+                onShareOpened={() => setAskedShare(null)}
               />
             )}
           </>

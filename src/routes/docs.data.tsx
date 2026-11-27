@@ -1003,7 +1003,9 @@ function DataPage() {
         notification, naming the columns and what they hold. Approving hides them from every grant
         on the dataset, through the same action as the button, checked against who owns the dataset
         rather than what the suggestion says. Rejecting leaves the shares as they are, and you are
-        not asked about those columns again.
+        not asked about those columns again. Lakehouse tables shared outside the platform are
+        checked the same way:{" "}
+        <DocLink to="/docs/lakehouse#share-personal-data">personal data in a share</DocLink>.
       </Callout>
 
       {/* ── WORKBENCH ── */}

@@ -295,7 +295,10 @@ describe("the inbox carries out an approved suggestion through the server", () =
     expect(inbox).toContain("item?.action_type === HIDE_COLUMNS_ACTION");
   });
   it("does not call a suggestion a paused agent", () => {
-    // Both of the platform's suggestions (R521 and R525's fixes) are "suggested".
-    expect(inbox).toMatch(/actionType === HIDE_COLUMNS_ACTION[^\n]*\) return "suggested"/);
+    // The platform's suggestions (R521, R525's fixes, R554's share masks) are
+    // "suggested": one condition, however it is wrapped.
+    const word = /actionType === HIDE_COLUMNS_ACTION[^;{]*\)\s*return "suggested"/.exec(inbox)?.[0];
+    expect(word).toBeTruthy();
+    expect(word).toContain("actionType === MASK_SHARE_ACTION");
   });
 });

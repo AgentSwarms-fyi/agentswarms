@@ -1848,6 +1848,14 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
         import("@/utils/data/sensitiveShares.server").then((m) => m.sweepSensitiveShares(force)),
       undefined,
     );
+    // Lakehouse shares whose recipients can read personal data: the share's
+    // owner is asked in the approvals inbox, a few times a day at most (R554).
+    await step(
+      "lake-share-masking",
+      () =>
+        import("@/utils/lakehouse/shareMasking.server").then((m) => m.sweepLakeShareMasking(force)),
+      undefined,
+    );
     // Checks and pipelines that keep failing the same way: the change that
     // would fix one is suggested to its owner in the approvals inbox (R525).
     await step(

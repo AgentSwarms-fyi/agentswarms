@@ -2,10 +2,12 @@
 // Delta Sharing protocol. An owner bundles tables into a named share, mints
 // a token per recipient (shown once, as the profile file their client
 // loads), and sees when each token was last used. A row filter or masked
-// columns on a shared table apply on top of the table's own policy.
+// columns on a shared table apply on top of the table's own policy. More
+// columns can be masked in place (R554), through the same writer an approved
+// suggestion uses; masks only grow here.
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Check, Copy, Download, KeyRound, Plus, Share2, Trash2 } from "lucide-react";
+import { Check, Copy, Download, EyeOff, KeyRound, Plus, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -40,15 +42,21 @@ import {
   revokeLakehouseShareToken,
   type LakehouseShare,
 } from "@/utils/lakehouse/shares.functions";
+import { maskShareColumnsFn } from "@/utils/lakehouse/shareMasking.functions";
 
 export type ShareableTable = { schema: string; name: string };
 
 export function SharesDialog({
   tables,
   ownedSchemas,
+  openShareId = null,
+  onShareOpened,
 }: {
   tables: ShareableTable[];
   ownedSchemas: string[];
+  /** A link asked for this share: open the dialog on it. */
+  openShareId?: string | null;
+  onShareOpened?: () => void;
 }) {
   const { session } = useAuth();
   const token = session?.access_token ?? "";
@@ -56,6 +64,7 @@ export function SharesDialog({
   const createFn = useServerFn(createLakehouseShare);
   const deleteFn = useServerFn(deleteLakehouseShare);
   const addTableFn = useServerFn(addLakehouseShareTable);
+  const maskFn = useServerFn(maskShareColumnsFn);
   const removeTableFn = useServerFn(removeLakehouseShareTable);
   const mintFn = useServerFn(createLakehouseShareToken);
   const revokeFn = useServerFn(revokeLakehouseShareToken);
@@ -76,6 +85,18 @@ export function SharesDialog({
   const [expiresDays, setExpiresDays] = useState("");
   const [minted, setMinted] = useState<{ label: string; profile: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  // The shared table whose "mask more columns" field is open, and what it holds.
+  const [maskingId, setMaskingId] = useState<string | null>(null);
+  const [moreMasked, setMoreMasked] = useState("");
+
+  useEffect(() => {
+    if (!openShareId) return;
+    setSelected(openShareId);
+    setOpen(true);
+    onShareOpened?.();
+    // Keyed on the request alone, so a later render does not reopen it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openShareId]);
 
   const owned = tables.filter((t) => ownedSchemas.includes(t.schema));
   const endpoint =
@@ -87,7 +108,9 @@ export function SharesDialog({
     try {
       const rows = await listFn({ data: { access_token: token } });
       setShares(rows);
-      if (!selected && rows.length) setSelected(rows[0].id);
+      // The first share, unless one still there is chosen (a link may name
+      // one that has since been deleted).
+      if (rows.length && !rows.some((r) => r.id === selected)) setSelected(rows[0].id);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -171,6 +194,30 @@ export function SharesDialog({
     });
 
   const current = shares?.find((s) => s.id === selected) ?? null;
+
+  const maskMore = (shareTableId: string) => {
+    const columns = moreMasked
+      .split(",")
+      .map((c) => c.trim())
+      .filter(Boolean);
+    if (!columns.length) return toast.error("Name a column to mask");
+    return run("", async () => {
+      const res = await maskFn({ data: { shareTableId, columns } });
+      if (!res.ok) throw new Error(res.error);
+      toast.success(
+        res.added.length
+          ? `Masked for this share's recipients: ${res.added.join(", ")}`
+          : "Those columns were already masked",
+        {
+          description: res.added.length
+            ? "From their next read. Your own queries are unchanged."
+            : undefined,
+        },
+      );
+      setMaskingId(null);
+      setMoreMasked("");
+    });
+  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -314,6 +361,21 @@ export function SharesDialog({
                             <Button
                               variant="ghost"
                               size="icon"
+                              className="h-6 w-6 text-muted-foreground"
+                              title="Mask more columns"
+                              aria-label={`Mask more columns of ${t.schema_name}.${t.table_name}`}
+                              aria-expanded={maskingId === t.id}
+                              disabled={busy}
+                              onClick={() => {
+                                setMaskingId(maskingId === t.id ? null : t.id);
+                                setMoreMasked("");
+                              }}
+                            >
+                              <EyeOff className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               className="h-6 w-6 text-muted-foreground hover:text-destructive"
                               aria-label={`Remove ${t.schema_name}.${t.table_name} from the share`}
                               disabled={busy}
@@ -327,6 +389,33 @@ export function SharesDialog({
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
+                            {maskingId === t.id ? (
+                              <div className="basis-full space-y-1.5 pt-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Input
+                                    value={moreMasked}
+                                    placeholder="email, phone"
+                                    onChange={(e) => setMoreMasked(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") void maskMore(t.id);
+                                    }}
+                                    className="h-8 min-w-40 flex-1"
+                                    aria-label={`Columns of ${t.schema_name}.${t.table_name} to mask`}
+                                  />
+                                  <Button
+                                    size="sm"
+                                    disabled={busy || !moreMasked.trim()}
+                                    onClick={() => void maskMore(t.id)}
+                                  >
+                                    Mask
+                                  </Button>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  Comma-separated. Masks only add here; to show a column again,
+                                  remove the table and add it back.
+                                </p>
+                              </div>
+                            ) : null}
                           </div>
                         ))}
                       </div>
