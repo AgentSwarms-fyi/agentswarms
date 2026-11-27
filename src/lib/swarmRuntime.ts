@@ -659,6 +659,13 @@ async function callAgentImpl(
   history: SwarmChatTurn[] = [],
   /** The saved swarm this run belongs to; names the call's trace. */
   swarmId?: string | null,
+  /**
+   * The run's id (swarm_runs.id) when it is recorded. The run is a decision
+   * of its own (startRun begins it), and every node's call joins it, as on a
+   * server run: Traces then shows one "swarm run" with all its model calls,
+   * not one "chat turn" per node.
+   */
+  decisionId?: string,
 ): Promise<string> {
   // Combine user-level abort signal with a per-node timeout so hung calls
   // don't block the swarm forever.
@@ -802,6 +809,9 @@ async function callAgentImpl(
         // like a turn typed in Agent Chat. The server reads the name itself.
         surface: "swarm" as const,
         swarmId: swarmId || undefined,
+        // Joins the run's decision; an unrecorded run has none, and each of
+        // its calls is a decision of its own, as a chat turn is.
+        decisionId: decisionId || undefined,
       };
 
   let resp = await fetch(endpoint, {
@@ -1019,6 +1029,7 @@ export async function runSwarm(
       onThinking,
       runHistory,
       swarmId,
+      dbRunId,
     );
   // Stable id for the entire run — used as a synthetic conversation key for
   // any node that opts into "swarm-scoped" memory so STM/scratchpad persists
