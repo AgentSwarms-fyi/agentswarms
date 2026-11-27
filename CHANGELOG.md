@@ -16,6 +16,12 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261211000000`** (R551) to record what actually happened
+  to online predictions: it adds `ml_outcomes` (the owner reads only), and to
+  `ml_evaluations` a `source` (`batch` or `online`) and `window_days`, with
+  `prediction_id` now null for an online evaluation (never for a batch one, a
+  check holds it). Until then `/api/ml/outcomes` answers 503 naming the
+  migration; batch evaluations are unchanged.
 - **Apply migration `20261210000000`** (R550) to save the newly editable
   machine-learning settings under Admin → Developer runtime: it adds ten
   nullable columns to `notebook_runtime_settings`, and NULL keeps today's
@@ -338,6 +344,15 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Outcomes for online predictions** (R551). A prediction asked for through
+  the API left no table to join, so a model answering online could never be
+  measured against what really happened. `POST /api/ml/outcomes` reports the
+  real answer for rows of a prediction, against its `prediction_id`, by the
+  key that asked for it. Every hour a version with new answers is measured
+  over its last 30 days of them (from 50) with the model's own metric, listed
+  on the Accuracy tab beside batch runs and part of the model's health; decay
+  is alerted like a batch run's and may start a pipeline, but only on the
+  owner's own keys' answers.
 - **Machine-learning settings in the UI** (R550). The explanation and
   reason-code limits, the accuracy sweep, the ML API rate limit, endpoint
   autoscaling, the MLflow import cap and the two endpoint caps are edited

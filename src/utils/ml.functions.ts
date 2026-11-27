@@ -992,6 +992,72 @@ export const mlEvaluatePrediction = createServerFn({ method: "POST" })
     },
   );
 
+// ── Online answers (R551) ────────────────────────────────────────────────────
+
+export type MlOnlineAccuracyView = {
+  /** The production version the answers are counted for, if there is one. */
+  versionId: string | null;
+  version: number | null;
+  /** Answers reported in the window; null before migration 20261211000000. */
+  answers: number | null;
+  minAnswers: number;
+  windowDays: number;
+};
+
+/**
+ * How many answers callers reported for the production version's online
+ * predictions. The owner's only: answers come from every key on the model.
+ */
+export const mlOnlineAccuracy = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
+  )
+  .handler(async ({ data }): Promise<{ view: MlOnlineAccuracyView | null }> => {
+    const userId = await resolveCaller(data.access_token);
+    const { model, shared } = await loadModelForUser(data.model_id, userId);
+    if (shared) return { view: null };
+    const { ONLINE_MIN_ANSWERS, ONLINE_WINDOW_DAYS } = await import("@/lib/mlOnlineOutcomes");
+    const { onlineAnswerCount } = await import("@/utils/ml/outcomes.server");
+    const versionId = model.production_version_id ?? null;
+    const { data: version } = versionId
+      ? await supabaseAdmin
+          .from("ml_model_versions")
+          .select("version")
+          .eq("id", versionId)
+          .maybeSingle()
+      : { data: null };
+    return {
+      view: {
+        versionId,
+        version: version?.version ?? null,
+        answers: versionId ? await onlineAnswerCount(versionId) : 0,
+        minAnswers: ONLINE_MIN_ANSWERS,
+        windowDays: ONLINE_WINDOW_DAYS,
+      },
+    };
+  });
+
+/** Measure the production version's online answers now, rather than waiting for the hour. */
+export const mlMeasureOnlineNow = createServerFn({ method: "POST" })
+  .validator((input: unknown) =>
+    z.object({ access_token: z.string().min(1), model_id: z.string().uuid() }).parse(input),
+  )
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; evaluation: MlEvaluationRow } | { ok: false; error: string }> => {
+      const userId = await resolveCaller(data.access_token);
+      const { model, shared } = await loadModelForUser(data.model_id, userId);
+      if (shared) return { ok: false, error: "Only the model's owner measures its online answers" };
+      if (!model.production_version_id) {
+        return { ok: false, error: "No version is in production to measure" };
+      }
+      const { evaluateOnline } = await import("@/utils/ml/outcomes.server");
+      const res = await evaluateOnline(model, model.production_version_id, userId, "ui");
+      return res.ok ? res : { ok: false, error: res.error };
+    },
+  );
+
 // ── Where the line is drawn ──────────────────────────────────────────────────
 
 /** The production version's calibration evidence and its operating point. */

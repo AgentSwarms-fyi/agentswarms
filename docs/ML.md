@@ -1129,6 +1129,39 @@ so one statement runs through the governed lakehouse chokepoint — as the
 model's **owner**, so the same schema grants apply — and the arithmetic happens
 in the app.
 
+### Online requests
+
+A prediction asked for through the API, or answered by a warm endpoint, leaves
+no table to join, so a model answering online could stop being right and
+nothing would say so (R551). The caller reports what happened instead,
+against the `prediction_id` the prediction call returned:
+
+```bash
+curl -X POST https://your-instance/api/ml/outcomes \
+  -H "Authorization: Bearer mlk_…" -H "Content-Type: application/json" \
+  -d '{"prediction_id":"…","outcomes":[{"row":0,"actual":"pro"}]}'
+```
+
+- **Only the key that asked reports.** A prediction made with another key, or
+  for another model, answers 404 either way, so a key learns nothing about
+  predictions it did not make. `row` is the row of that request, from 0 (it
+  may be left out for a request of one row); reporting a row again replaces
+  the earlier answer. What the model answered is copied from the request's own
+  record, never taken from the caller.
+- **The same measure.** Every hour each version with new answers is measured
+  over its last 30 days of them, at most once a day, with the model's own
+  metric (`f1_macro`, `rmse`) through the same functions the batch path uses,
+  from 50 answers. The evaluation is listed on the **Accuracy** tab beside the
+  batch runs' ("Online answers, 30 days"), carries its coverage (answered rows
+  out of rows answered online), and is part of the model's health.
+- **Decay is told like a batch run's**, audited as `ml.decay.alert` with
+  `source: "online"`. A pipeline set to start on decay starts only when the
+  owner's own keys' answers show it, so a key the model is shared through
+  cannot report its way into the owner's retraining.
+- Classification and regression only: a forecast answers from its stored
+  forecast, not from rows. Reports are audited as `ml.outcome.report`, and
+  need migration `20261211000000`.
+
 ## Is 0.8 really 80%?
 
 Every classification here carries a probability, and the interface has always
@@ -1364,6 +1397,7 @@ address.
 | `POST /api/ml/predict`         | predict | `rows` (up to 200), `version_id`, `wait_seconds`                                                  | 200 with columns and rows, or 202 with a `prediction_id` to poll                                                                                       |
 | `POST /api/ml/predict/batch`   | predict | `input {schema, table, where}`, `output {schema, table}`, `version_id`                            | 202 with a `prediction_id`; the output is a lakehouse table you own                                                                                    |
 | `POST /api/ml/predict/status`  | read    | `prediction_id`                                                                                   | status, row count, columns, a sample, the result digest                                                                                                |
+| `POST /api/ml/outcomes`        | predict | `prediction_id`, `outcomes [{row, actual}]` (up to 200)                                           | what actually happened to rows of a prediction this key made, measured on the Accuracy tab (R551)                                                      |
 | `POST /api/ml/models/register` | train   | `artifact_uri`, `artifact_sha256`, `algorithm`, `metrics`, `feature_schema`, `classes`, `promote` | 201 with the new version and `promoted`; `promotion_error` when a promotion was asked for and could not be made — the version is registered either way |
 
 ```bash

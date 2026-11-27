@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTokenRef } from "@/hooks/use-token-ref";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, Loader2, Target, TrendingDown, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Radio, Target, TrendingDown, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,8 +25,11 @@ import {
   mlEvaluatePrediction,
   mlListEvaluations,
   mlListPredictions,
+  mlMeasureOnlineNow,
+  mlOnlineAccuracy,
   mlSetOutcomeSource,
   type MlEvaluationRow,
+  type MlOnlineAccuracyView,
 } from "@/utils/ml.functions";
 import { reportFailure } from "@/lib/silentFailureNet";
 
@@ -78,6 +81,9 @@ export function AccuracyPanel({
   const setFn = useServerFn(mlSetOutcomeSource);
   const evalFn = useServerFn(mlEvaluatePrediction);
   const predictionsFn = useServerFn(mlListPredictions);
+  const onlineFn = useServerFn(mlOnlineAccuracy);
+  const measureOnlineFn = useServerFn(mlMeasureOnlineNow);
+  const [online, setOnline] = useState<MlOnlineAccuracyView | null>(null);
 
   const [rows, setRows] = useState<MlEvaluationRow[] | null>(null);
   const [source, setSource] = useState<MlOutcomeSource | null>(null);
@@ -89,8 +95,16 @@ export function AccuracyPanel({
   // Read on opening, not when the session refreshes (R125): that put the saved outcome source back
   // over the one being edited.
   const load = useCallback(async () => {
-    const res = await listFn({ data: { access_token: tokenRef.current, model_id: modelId } });
+    const [res, on] = await Promise.all([
+      listFn({ data: { access_token: tokenRef.current, model_id: modelId } }),
+      // R551: what callers reported happened to online predictions. Shown to
+      // the owner only, and never in the way of the batch evaluations.
+      onlineFn({ data: { access_token: tokenRef.current, model_id: modelId } }).catch(() => ({
+        view: null,
+      })),
+    ]);
     setRows(res.evaluations);
+    setOnline(on.view);
     setSource(res.source);
     if (res.source) {
       setForm({
@@ -101,7 +115,7 @@ export function AccuracyPanel({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listFn, signedIn, modelId]);
+  }, [listFn, onlineFn, signedIn, modelId]);
 
   useEffect(() => {
     void load();
@@ -191,6 +205,23 @@ export function AccuracyPanel({
     }
   };
 
+  /** Measure the production version's online answers now (R551). */
+  const measureOnline = async () => {
+    setBusy(true);
+    try {
+      const res = await measureOnlineFn({ data: { access_token: token, model_id: modelId } });
+      if (!res.ok) toast.error(res.error);
+      else {
+        toast.success(`Measured ${res.evaluation.matched_rows} reported answers`);
+        void load();
+      }
+    } catch (e) {
+      reportFailure("measure online accuracy", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const latest = rows?.[0];
 
   return (
@@ -227,6 +258,9 @@ export function AccuracyPanel({
                 This model is not measured against outcomes yet. Point it at the table where the
                 real answers land — an order that shipped, a customer who did churn — and every
                 batch run is scored against it as the answers arrive.
+                {task === "forecast"
+                  ? ""
+                  : " Predictions asked for online are measured from the answers their callers report, below."}
               </p>
               {!shared && (
                 <Button size="sm" className="mt-3" onClick={() => setEditing(true)}>
@@ -332,12 +366,17 @@ export function AccuracyPanel({
         </CardContent>
       </Card>
 
+      {online && !shared && (task === "classification" || task === "regression") ? (
+        <OnlineCard view={online} task={task} busy={busy} onMeasure={measureOnline} />
+      ) : null}
+
       {rows && rows.length > 0 && (
         <div className="overflow-hidden rounded-lg border bg-card">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-xs text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 text-left font-medium">Measured</th>
+                <th className="px-3 py-2 text-left font-medium">From</th>
                 <th className="px-3 py-2 text-left font-medium">Metric</th>
                 <th className="px-3 py-2 text-right font-medium">Now</th>
                 <th className="px-3 py-2 text-right font-medium">Training</th>
@@ -349,6 +388,11 @@ export function AccuracyPanel({
               {rows.map((r) => (
                 <tr key={r.id} className="border-t">
                   <td className="px-3 py-2 text-muted-foreground">{relTime(r.created_at)}</td>
+                  <td className="px-3 py-2 text-xs text-muted-foreground">
+                    {r.source === "online"
+                      ? `Online answers, ${r.window_days ?? 30} days`
+                      : "A batch run"}
+                  </td>
                   <td className="px-3 py-2 font-mono text-xs">{r.metric_name}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{num(r.metric_value)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
@@ -372,6 +416,75 @@ export function AccuracyPanel({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * Online requests (R551): a request through the API leaves no table to join,
+ * so the caller reports what happened, and the answers are measured here.
+ */
+function OnlineCard({
+  view,
+  task,
+  busy,
+  onMeasure,
+}: {
+  view: MlOnlineAccuracyView;
+  task: string;
+  busy: boolean;
+  onMeasure: () => void;
+}) {
+  const enough = view.answers !== null && view.answers >= view.minAnswers;
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  const actual = task === "regression" ? "42.5" : '"<what happened>"';
+  return (
+    <Card>
+      <CardContent className="space-y-3 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              <Radio className="h-4 w-4" /> Online requests
+            </h3>
+            <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+              A prediction asked for through the API leaves no table to join, so whoever asked
+              reports what actually happened, against the prediction_id it was given. The answers
+              are measured every hour with the same metric, from {view.minAnswers} answers in the
+              last {view.windowDays} days.
+            </p>
+          </div>
+          {view.versionId ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              onClick={onMeasure}
+              disabled={busy || !enough}
+            >
+              Measure now
+            </Button>
+          ) : null}
+        </div>
+        <p className="text-xs">
+          {view.answers === null
+            ? "Reporting outcomes needs migration 20261211000000."
+            : !view.versionId
+              ? "No version is in production yet."
+              : `${view.answers.toLocaleString()} answer${view.answers === 1 ? "" : "s"} reported for version ${view.version ?? "?"} in the last ${view.windowDays} days${enough ? "." : `; measured from ${view.minAnswers}.`}`}
+        </p>
+        <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-[11px] leading-relaxed">
+          {/* FOUND IN THE UI TEST: a single backslash before a newline is a
+              line continuation in a template literal, so the example ran
+              onto one line with no backslashes. Two, to print one. */}
+          {`curl -X POST ${origin}/api/ml/outcomes \\
+  -H "Authorization: Bearer mlk_…" -H "Content-Type: application/json" \\
+  -d '{"prediction_id": "<from the prediction call>", "outcomes": [{"row": 0, "actual": ${actual}}]}'`}
+        </pre>
+        <p className="text-[11px] text-muted-foreground">
+          The key that asked for a prediction is the one that may report on it, for the rows it
+          sent. What the model answered is taken from the request&apos;s own record.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

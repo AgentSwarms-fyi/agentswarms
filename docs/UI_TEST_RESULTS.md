@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-27 — R551: outcomes for online predictions
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab, before migration 20261211000000 was applied. The API itself was not driven: reporting needs an ML API key, and making one is the user's to approve; it is covered by tests over an in-memory database.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| "revenue_facts plan classifier" → Accuracy | the page | the batch evaluations as before, each now saying where it came from ("A batch run"); the new **Online requests** card below the outcome-source card, with what reporting is, Measure now (disabled), and an example request |
+| Same | the card's count | "0 answers reported for version 7 in the last 30 days", before the migration that holds them. A HEAD count against a table that is not there answered 204 with no error and no count (probed with the public key: a GET says the table is missing) — fixed: a GET of one row, and a count it cannot read is unknown |
+| Same | the example | printed on one line with no backslashes: one backslash before a newline is a line continuation in a template literal (fixed) |
+| After the fixes (stack rebuilt) | the page | after the user applied migrations 20261208000000 to 20261211000000 (checked with a read-only query): "0 answers reported for version 7 in the last 30 days; measured from 50.", now true; the example on three lines, each continued with a backslash |
+
 ## 2026-11-27 — R550: machine-learning settings in Admin
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the superadmin, in a fronted tab, before migration 20261210000000 was applied. A read-only query first: every older ML setting was saved in the database at exactly its built-in value, and the container sets no ML variable, the mark of an earlier whole-form save writing the defaults into every column.
@@ -29,6 +40,7 @@ Driven on the 8080 stack rebuilt from the worktree, signed in as the superadmin,
 | Fairness review threshold | **Reset**, Save | "Reset on save: the built-in 0.8", then **Runtime settings saved**; the field reads "Built in". Read-only: the column is NULL, the drift threshold beside it untouched, and one `runtime.settings.update` row, `ml_fairness_min_ratio` 0.8 → null |
 | Same | the wording | "the built-in 2000000" unformatted, and an autoscale hint pointing at "KSERVE_SCALE_TARGET below", which is only below with KServe on (both fixed) |
 | After the fixes (stack rebuilt) | the page, and the refused save again | "Reset to the built-in 2,000,000"; the hint names KSERVE_SCALE_TARGET "in the server's environment"; the refusal reads "Nothing was saved: ml_explain_top_k needs migration 20261210000000. Apply the latest migrations (npx supabase db push --remote), then save again."; set back to 8, nothing pending |
+| After migration 20261210000000 (applied by the user) | Features per explanation 8 → 9, Save; then **Reset**, Save | **Runtime settings saved**, "Saved here · Reset to the built-in 8"; then "Reset on save", saved, "Built in" again and "Everything on every tab is saved" |
 
 ## 2026-11-27 — R549: inputs that stop arriving
 

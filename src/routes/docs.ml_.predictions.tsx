@@ -245,6 +245,12 @@ function MlPredictionsPage() {
             "status, row count, columns, a sample, the result digest",
           ],
           [
+            <C key="h">POST /api/ml/outcomes</C>,
+            "predict",
+            "prediction_id, outcomes [{row, actual}] (up to 200)",
+            "what actually happened to rows of a prediction this key made, measured on the Accuracy tab",
+          ],
+          [
             <C key="g">POST /api/ml/models/register</C>,
             "train",
             "artifact_uri, artifact_sha256, algorithm, metrics, feature_schema, classes, promote",
@@ -260,7 +266,13 @@ function MlPredictionsPage() {
 curl -X POST https://your-instance/api/ml/predict/batch \\
   -H "Authorization: Bearer mlk_…" -H "Content-Type: application/json" \\
   -d '{"input":{"schema":"analytics","table":"revenue_facts"},"output":{"schema":"analytics","table":"revenue_scored"}}'
-# → 202 {"accepted":true,"prediction_id":"…","output":"analytics.revenue_scored"}`}</Code>
+# → 202 {"accepted":true,"prediction_id":"…","output":"analytics.revenue_scored"}
+
+# Later, when the real answer is known (R551):
+curl -X POST https://your-instance/api/ml/outcomes \\
+  -H "Authorization: Bearer mlk_…" -H "Content-Type: application/json" \\
+  -d '{"prediction_id":"…","outcomes":[{"row":0,"actual":"pro"}]}'
+# → {"prediction_id":"…","recorded":1}`}</Code>
       <P>
         Answers use ordinary status codes: <C>401</C> for a missing, unknown, revoked or expired
         key, <C>403</C> for a missing scope, <C>404</C> for a job or run of another model (never

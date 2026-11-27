@@ -259,6 +259,28 @@ function MlTrustPage() {
         so one statement runs through the governed lakehouse chokepoint as the model&apos;s owner
         and the arithmetic happens in the app.
       </P>
+      <H3 id="online-outcomes">Online requests</H3>
+      <P>
+        A prediction asked for through the API leaves no table to join, so whoever asked reports
+        what happened, against the <C>prediction_id</C> it was given, with{" "}
+        <C>POST /api/ml/outcomes</C>. Every hour a version with new answers is measured over its
+        last 30 days of them, from 50 answers, with the same metric and the same functions, and
+        listed on the Accuracy tab beside the batch runs.
+      </P>
+      <UL>
+        <li>
+          Only the key that asked may report, for rows of that request; what the model answered is
+          taken from the request&apos;s own record.
+        </li>
+        <li>
+          Decay alerts like a batch run&apos;s (<C>ml.decay.alert</C>,{" "}
+          <C>source: &quot;online&quot;</C>
+          ). A pipeline starts on it only when the owner&apos;s own keys&apos; answers show it.
+        </li>
+        <li>
+          Classification and regression only. Needs migration <C>20261211000000</C>.
+        </li>
+      </UL>
 
       <H2 id="calibration">Is 0.8 really 80%?</H2>
       <P>

@@ -3585,6 +3585,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "20261207000000",
       "20261208000000",
       "20261209000000",
+      "20261211000000",
       "CalibratedClassifierCV",
       "ML_DECAY_ALERT_RATIO",
       "ML_DRIFT_ALERT_PSI",
@@ -3607,6 +3608,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ml.threshold.set",
       "predict",
       "predict_proba",
+      "prediction_id",
       "retained",
       "rmse",
       "threshold_applied"
@@ -3641,6 +3643,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
         "id": "ground-truth",
         "text": "Was it right?",
         "level": 2
+      },
+      {
+        "id": "online-outcomes",
+        "text": "Online requests",
+        "level": 3
       },
       {
         "id": "calibration",

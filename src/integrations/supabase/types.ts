@@ -5556,7 +5556,9 @@ export type Database = {
           metric_name: string;
           metric_value: number;
           model_id: string;
-          prediction_id: string;
+          prediction_id: string | null;
+          source: string;
+          window_days: number | null;
           scored_rows: number;
           user_id: string;
           verdict: string | null;
@@ -5573,7 +5575,9 @@ export type Database = {
           metric_name: string;
           metric_value: number;
           model_id: string;
-          prediction_id: string;
+          prediction_id?: string | null;
+          source?: string;
+          window_days?: number | null;
           scored_rows: number;
           user_id: string;
           verdict?: string | null;
@@ -5590,7 +5594,9 @@ export type Database = {
           metric_name?: string;
           metric_value?: number;
           model_id?: string;
-          prediction_id?: string;
+          prediction_id?: string | null;
+          source?: string;
+          window_days?: number | null;
           scored_rows?: number;
           user_id?: string;
           verdict?: string | null;
@@ -6158,6 +6164,45 @@ export type Database = {
           score?: number | null;
           features?: Json | null;
           checked_at?: string;
+        };
+        Relationships: [];
+      };
+      ml_outcomes: {
+        Row: {
+          prediction_id: string;
+          row_index: number;
+          model_id: string;
+          version_id: string;
+          user_id: string;
+          api_key_id: string | null;
+          reported_by: string | null;
+          predicted: string;
+          actual: string;
+          received_at: string;
+        };
+        Insert: {
+          prediction_id: string;
+          row_index: number;
+          model_id: string;
+          version_id: string;
+          user_id: string;
+          api_key_id?: string | null;
+          reported_by?: string | null;
+          predicted: string;
+          actual: string;
+          received_at?: string;
+        };
+        Update: {
+          prediction_id?: string;
+          row_index?: number;
+          model_id?: string;
+          version_id?: string;
+          user_id?: string;
+          api_key_id?: string | null;
+          reported_by?: string | null;
+          predicted?: string;
+          actual?: string;
+          received_at?: string;
         };
         Relationships: [];
       };

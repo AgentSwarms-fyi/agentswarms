@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "online-outcomes",
+    date: "2026-11-27",
+    title: "Was it right, for online predictions",
+    body: "Callers can now report what actually happened to a prediction they asked for through the API, and the model's Accuracy tab measures those answers against its training score.",
+    link: { to: "/ml" },
+    cta: "Open ML models",
+  },
+  {
     id: "ml-settings-in-admin",
     date: "2026-11-27",
     title: "Machine-learning settings in Admin",

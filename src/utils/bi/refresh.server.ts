@@ -1785,6 +1785,23 @@ export async function runCronPass(opts: { force?: boolean } = {}): Promise<CronP
           ),
         undefined,
       );
+      // Online answers (R551): what callers reported actually happened to the
+      // rows they were given, measured with the model's own metric, at most
+      // once a day per version and only when new answers arrived. Twice in the
+      // first two minutes is harmless: the second pass sees the first's
+      // evaluation and skips.
+      await step(
+        "ml-online",
+        () =>
+          import("@/utils/ml/outcomes.server").then((m) =>
+            m.runOnlineEvaluations().then((r) => {
+              if (r.evaluated) {
+                console.log(`[ml-online] ${r.evaluated} version(s) measured, ${r.alerted} alerted`);
+              }
+            }),
+          ),
+        undefined,
+      );
     }
 
     const sql_model_builds = await step(

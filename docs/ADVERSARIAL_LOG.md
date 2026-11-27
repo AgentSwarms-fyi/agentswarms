@@ -109,6 +109,23 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-27 — R551: a model answering online was never measured against what happened
+
+**Why this round.** Drift and missing inputs warn that the rows look different; only the real answer says the model is wrong. A batch run is measured by joining its scored table to an outcome table, but a prediction asked for through the API leaves no table, so online serving had no accuracy at all. Read as the owner of a model behind an API, and as someone the model is shared with.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Online predictions were never measured against real outcomes | S2 | **Found by the round's question.** `POST /api/ml/outcomes` takes what happened for rows of a prediction; hourly, a version with new answers is measured over 30 days with the model's own metric, beside batch runs. |
+| A shared key could have started the owner's retraining | S2 | **Found in design.** Decay starts a pipeline (R544). Answers are reported by keys, and a key may belong to someone the model is shared with: reporting wrong answers would have retrained the owner's model. A pipeline starts only when the owner's own keys' answers show the decay; others' notify only (tested, mutation-checked). |
+| A caller could have chosen what the model "answered" | S3 | **Found in design.** The predicted value is copied from the request's own stored result, never taken from the report (mutation-checked). |
+| Before its migration the page said "0 answers" | S4 | **Found in the UI test.** A HEAD count against a missing table answers 204, no error, no count. Now a GET; an unreadable count is unknown, and the card names the migration. |
+| The example request lost its line breaks | S4 | **Found in the UI test.** A single backslash before a newline is a line continuation in a template literal. |
+
+**Checked and sound.**
+- **Only the asking key reports**, and "not yours" answers 404 like "no such prediction", so a key learns nothing about other predictions (tested for another key, another model, a batch run).
+- **The same metric as a batch run**: the answers one by one give scikit-learn's own f1_macro on every case of the existing fixture.
+- **Once a day per version, only on new answers**, and from 50 answers (both edges tested; 7 of 7 mutations caught).
+
 ### 2026-11-27 — R550: the settings page lied about where a value came from, and wrote over it
 
 **Why this round.** The user asked whether every ML and serving setting can be set from the UI. Ten could only be set in the server's environment, and two had a column but no field. Read as the operator who sets one in `.env` and then opens the page.
