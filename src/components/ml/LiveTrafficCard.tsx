@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 
 import { relTime } from "@/components/ml/mlFormat";
 import { Card, CardContent } from "@/components/ui/card";
+import { MISSING_RISE as MISSING_RISE_POINTS, sharePct } from "@/lib/mlMissingInputs";
 import { driftBand, type DriftBand } from "@/lib/mlTraffic";
 import {
   mlLiveTraffic,
@@ -53,6 +54,21 @@ function VersionLine({ v, minRows }: { v: LiveTrafficVersion; minRows: number })
             : "."}
         {v.truncated ? " Only the newest requests were read." : ""}
       </p>
+      {v.missing?.length ? (
+        // R549: what drift cannot see. It measures the values that arrived.
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          Arriving empty:{" "}
+          {v.missing
+            .slice(0, 4)
+            .map(
+              (m) =>
+                `${m.feature} in ${sharePct(m.rate)} of rows (${m.training === null ? "not recorded at training" : `${sharePct(m.training)} in training`})`,
+            )
+            .join(", ")}
+          {v.missing.length > 4 ? `, and ${v.missing.length - 4} more` : ""}. Those rows were scored
+          on a filled-in value; retraining will not fix it.
+        </p>
+      ) : null}
     </li>
   );
 }
@@ -113,8 +129,8 @@ export function LiveTrafficCard({ token, modelId }: { token: string; modelId: st
               </p>
             ) : view.versions.length === 0 ? (
               <p className="text-xs text-muted-foreground">
-                No online requests in the last {view.windowHours} hours. Requests through the API,
-                a warm endpoint or the playground are measured here from {fmt(view.minRows)} rows.
+                No online requests in the last {view.windowHours} hours. Requests through the API, a
+                warm endpoint or the playground are measured here from {fmt(view.minRows)} rows.
               </p>
             ) : null}
             {view.versions.length ? (
@@ -130,7 +146,10 @@ export function LiveTrafficCard({ token, modelId }: { token: string; modelId: st
           <p className="text-[11px] text-muted-foreground">
             Checked every hour. Above PSI {view.threshold.toFixed(2)} you are told once a day, and
             an ML pipeline set to start on this model&apos;s drift starts when your own requests
-            drifted too.
+            drifted too. A feature that arrives empty in at least{" "}
+            {Math.round(MISSING_RISE_POINTS * 100)} more of every 100 rows than it did in training
+            is named here, counted from {fmt(view.missingMinRows)} rows, and you are told once a
+            day; that starts nothing, because retraining would not fix it.
           </p>
         ) : null}
       </CardContent>

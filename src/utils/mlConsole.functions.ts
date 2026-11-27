@@ -10,6 +10,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { callerFailure } from "@/utils/callerLookup.server";
 import { listModelsForUser, type MlModelRow } from "@/utils/ml/access.server";
 import { ML_JOB_LIVE } from "@/utils/ml/types";
+import type { MissingInput } from "@/lib/mlMissingInputs";
 import {
   attentionItems,
   type AttentionItem,
@@ -676,12 +677,16 @@ export type LiveTrafficVersion = {
   features: Record<string, number>;
   ownerRows: number;
   ownerScore: number | null;
+  /** Features arriving empty far more often than in training (R549); null below its minimum rows. */
+  missing: MissingInput[] | null;
   truncated: boolean;
 };
 
 export type LiveTrafficView = {
   windowHours: number;
   minRows: number;
+  /** Missing inputs are counted from this many rows (R549). */
+  missingMinRows: number;
   threshold: number;
   versions: LiveTrafficVersion[];
   /** When the hourly check last looked, if it has (needs migration 20261207000000). */
@@ -719,6 +724,7 @@ export const mlLiveTraffic = createServerFn({ method: "POST" })
       if (!model) return { ok: true, traffic: null };
       const { liveTraffic } = await import("@/utils/ml/traffic.server");
       const { TRAFFIC_MIN_ROWS, TRAFFIC_WINDOW_HOURS } = await import("@/lib/mlTraffic");
+      const { MISSING_MIN_ROWS } = await import("@/lib/mlMissingInputs");
       const { getPlatformResources } = await import("@/utils/notebookRuntime/config.server");
       let traffic: Awaited<ReturnType<typeof liveTraffic>>;
       try {
@@ -757,6 +763,7 @@ export const mlLiveTraffic = createServerFn({ method: "POST" })
         traffic: {
           windowHours: TRAFFIC_WINDOW_HOURS,
           minRows: TRAFFIC_MIN_ROWS,
+          missingMinRows: MISSING_MIN_ROWS,
           threshold: limits.mlDriftAlertPsi,
           checkedAt: checks.error ? null : (checks.data?.[0]?.checked_at ?? null),
           productionUnmeasured:
@@ -771,6 +778,7 @@ export const mlLiveTraffic = createServerFn({ method: "POST" })
             features: t.drift?.features ?? {},
             ownerRows: t.ownerRows,
             ownerScore: t.ownerDrift?.score ?? null,
+            missing: t.missing,
             truncated: t.truncated,
           })),
         },

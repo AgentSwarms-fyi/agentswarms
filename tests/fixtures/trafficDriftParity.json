@@ -1612,6 +1612,17 @@
      "tenure": 0.1586
     },
     "rows": 260
+   },
+   "expected_missing": {
+    "rows": 260,
+    "rates": {
+     "amount": 0.05,
+     "tenure": 0.0769,
+     "plan": 0.1192,
+     "region": 0.2,
+     "absent": 1.0,
+     "sparse": 0.9769
+    }
    }
   },
   {
@@ -1809,7 +1820,864 @@
      "flag": 0.0929
     },
     "rows": 40
+   },
+   "expected_missing": {
+    "rows": 40,
+    "rates": {}
+   }
+  },
+  {
+   "stats": {
+    "plan": {
+     "kind": "categorical",
+     "props": {
+      "basic": 0.6,
+      "pro": 0.4
+     },
+     "other": 0.0,
+     "n": 100
+    },
+    "region": {
+     "kind": "categorical",
+     "props": {
+      "eu": 0.5,
+      "us": 0.5
+     },
+     "other": 0.0,
+     "n": 100
+    },
+    "channel": {
+     "kind": "categorical",
+     "props": {
+      "web": 0.7,
+      "app": 0.3
+     },
+     "other": 0.0,
+     "n": 100
+    }
+   },
+   "rows": [
+    {
+     "plan": "basic",
+     "region": null,
+     "channel": "web"
+    },
+    {
+     "plan": "pro",
+     "region": null,
+     "channel": "web"
+    },
+    {
+     "plan": "basic",
+     "region": null,
+     "channel": "web"
+    },
+    {
+     "plan": "basic",
+     "region": null,
+     "channel": "web"
+    },
+    {
+     "plan": "pro",
+     "region": null,
+     "channel": "web"
+    },
+    {
+     "plan": "basic",
+     "region": null,
+     "channel": "web"
+    },
+    {
+     "plan": "basic",
+     "region": null,
+     "channel": "web"
+    },
+    {
+     "plan": "pro",
+     "region": null,
+     "channel": "web"
+    },
+    {
+     "plan": "basic",
+     "region": null,
+     "channel": "web"
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "pro",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "pro",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "pro",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "pro",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "pro",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "pro",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    },
+    {
+     "plan": "pro",
+     "region": null
+    },
+    {
+     "plan": "basic",
+     "region": null
+    }
+   ],
+   "expected": {
+    "score": 0.0192,
+    "features": {
+     "plan": 0.0192
+    },
+    "rows": 30
+   },
+   "expected_missing": {
+    "rows": 30,
+    "rates": {
+     "region": 1.0,
+     "channel": 0.7
+    }
    }
   }
- ]
+ ],
+ "training": {
+  "rows": [
+   {
+    "income": null,
+    "segment": "a",
+    "age": 20
+   },
+   {
+    "income": "n/a",
+    "segment": "b",
+    "age": 21
+   },
+   {
+    "income": 1074,
+    "segment": "c",
+    "age": 22
+   },
+   {
+    "income": 1111,
+    "segment": null,
+    "age": 23
+   },
+   {
+    "income": null,
+    "segment": "b",
+    "age": 24
+   },
+   {
+    "income": 1185,
+    "segment": "c",
+    "age": 25
+   },
+   {
+    "income": 1222,
+    "segment": "a",
+    "age": 26
+   },
+   {
+    "income": 1259,
+    "segment": "b",
+    "age": 27
+   },
+   {
+    "income": null,
+    "segment": "c",
+    "age": 28
+   },
+   {
+    "income": 1333,
+    "segment": "a",
+    "age": 29
+   },
+   {
+    "income": 1370,
+    "segment": "b",
+    "age": 30
+   },
+   {
+    "income": 1407,
+    "segment": "c",
+    "age": 31
+   },
+   {
+    "income": null,
+    "segment": "a",
+    "age": 32
+   },
+   {
+    "income": 1481,
+    "segment": null,
+    "age": 33
+   },
+   {
+    "income": 1518,
+    "segment": "c",
+    "age": 34
+   },
+   {
+    "income": 1555,
+    "segment": "a",
+    "age": 35
+   },
+   {
+    "income": null,
+    "segment": "b",
+    "age": 36
+   },
+   {
+    "income": 1629,
+    "segment": "c",
+    "age": 37
+   },
+   {
+    "income": 1666,
+    "segment": "a",
+    "age": 38
+   },
+   {
+    "income": 1703,
+    "segment": "b",
+    "age": 39
+   },
+   {
+    "income": null,
+    "segment": "c",
+    "age": 40
+   },
+   {
+    "income": 1777,
+    "segment": "a",
+    "age": 41
+   },
+   {
+    "income": 1814,
+    "segment": "b",
+    "age": 42
+   },
+   {
+    "income": 1851,
+    "segment": null,
+    "age": 43
+   },
+   {
+    "income": null,
+    "segment": "a",
+    "age": 44
+   },
+   {
+    "income": 1925,
+    "segment": "b",
+    "age": 45
+   },
+   {
+    "income": 1962,
+    "segment": "c",
+    "age": 46
+   },
+   {
+    "income": 1999,
+    "segment": "a",
+    "age": 47
+   },
+   {
+    "income": null,
+    "segment": "b",
+    "age": 48
+   },
+   {
+    "income": 2073,
+    "segment": "c",
+    "age": 49
+   },
+   {
+    "income": 2110,
+    "segment": "a",
+    "age": 50
+   },
+   {
+    "income": "n/a",
+    "segment": "b",
+    "age": 51
+   },
+   {
+    "income": null,
+    "segment": "c",
+    "age": 52
+   },
+   {
+    "income": 2221,
+    "segment": null,
+    "age": 53
+   },
+   {
+    "income": 2258,
+    "segment": "b",
+    "age": 54
+   },
+   {
+    "income": 2295,
+    "segment": "c",
+    "age": 55
+   },
+   {
+    "income": null,
+    "segment": "a",
+    "age": 56
+   },
+   {
+    "income": 2369,
+    "segment": "b",
+    "age": 57
+   },
+   {
+    "income": 2406,
+    "segment": "c",
+    "age": 58
+   },
+   {
+    "income": 2443,
+    "segment": "a",
+    "age": 59
+   },
+   {
+    "income": null,
+    "segment": "b",
+    "age": 20
+   },
+   {
+    "income": 2517,
+    "segment": "c",
+    "age": 21
+   },
+   {
+    "income": 2554,
+    "segment": "a",
+    "age": 22
+   },
+   {
+    "income": 2591,
+    "segment": null,
+    "age": 23
+   },
+   {
+    "income": null,
+    "segment": "c",
+    "age": 24
+   },
+   {
+    "income": 2665,
+    "segment": "a",
+    "age": 25
+   },
+   {
+    "income": "n/a",
+    "segment": "b",
+    "age": 26
+   },
+   {
+    "income": 2739,
+    "segment": "c",
+    "age": 27
+   },
+   {
+    "income": null,
+    "segment": "a",
+    "age": 28
+   },
+   {
+    "income": 2813,
+    "segment": "b",
+    "age": 29
+   },
+   {
+    "income": 2850,
+    "segment": "c",
+    "age": 30
+   },
+   {
+    "income": 2887,
+    "segment": "a",
+    "age": 31
+   },
+   {
+    "income": null,
+    "segment": "b",
+    "age": 32
+   },
+   {
+    "income": 2961,
+    "segment": null,
+    "age": 33
+   },
+   {
+    "income": 2998,
+    "segment": "a",
+    "age": 34
+   },
+   {
+    "income": 3035,
+    "segment": "b",
+    "age": 35
+   },
+   {
+    "income": null,
+    "segment": "c",
+    "age": 36
+   },
+   {
+    "income": 3109,
+    "segment": "a",
+    "age": 37
+   },
+   {
+    "income": 3146,
+    "segment": "b",
+    "age": 38
+   },
+   {
+    "income": 3183,
+    "segment": "c",
+    "age": 39
+   },
+   {
+    "income": null,
+    "segment": "a",
+    "age": 40
+   },
+   {
+    "income": "n/a",
+    "segment": "b",
+    "age": 41
+   },
+   {
+    "income": 3294,
+    "segment": "c",
+    "age": 42
+   },
+   {
+    "income": 3331,
+    "segment": null,
+    "age": 43
+   },
+   {
+    "income": null,
+    "segment": "b",
+    "age": 44
+   },
+   {
+    "income": 3405,
+    "segment": "c",
+    "age": 45
+   },
+   {
+    "income": 3442,
+    "segment": "a",
+    "age": 46
+   },
+   {
+    "income": 3479,
+    "segment": "b",
+    "age": 47
+   },
+   {
+    "income": null,
+    "segment": "c",
+    "age": 48
+   },
+   {
+    "income": 3553,
+    "segment": "a",
+    "age": 49
+   },
+   {
+    "income": 3590,
+    "segment": "b",
+    "age": 50
+   },
+   {
+    "income": 3627,
+    "segment": "c",
+    "age": 51
+   },
+   {
+    "income": null,
+    "segment": "a",
+    "age": 52
+   },
+   {
+    "income": 3701,
+    "segment": null,
+    "age": 53
+   },
+   {
+    "income": 3738,
+    "segment": "c",
+    "age": 54
+   },
+   {
+    "income": 3775,
+    "segment": "a",
+    "age": 55
+   },
+   {
+    "income": null,
+    "segment": "b",
+    "age": 56
+   },
+   {
+    "income": 3849,
+    "segment": "c",
+    "age": 57
+   },
+   {
+    "income": 3886,
+    "segment": "a",
+    "age": 58
+   },
+   {
+    "income": 3923,
+    "segment": "b",
+    "age": 59
+   },
+   {
+    "income": null,
+    "segment": "c",
+    "age": 20
+   },
+   {
+    "income": 3997,
+    "segment": "a",
+    "age": 21
+   },
+   {
+    "income": 4034,
+    "segment": "b",
+    "age": 22
+   },
+   {
+    "income": 4071,
+    "segment": null,
+    "age": 23
+   },
+   {
+    "income": null,
+    "segment": "a",
+    "age": 24
+   },
+   {
+    "income": 4145,
+    "segment": "b",
+    "age": 25
+   },
+   {
+    "income": 4182,
+    "segment": "c",
+    "age": 26
+   },
+   {
+    "income": 4219,
+    "segment": "a",
+    "age": 27
+   },
+   {
+    "income": null,
+    "segment": "b",
+    "age": 28
+   },
+   {
+    "income": 4293,
+    "segment": "c",
+    "age": 29
+   },
+   {
+    "income": 4330,
+    "segment": "a",
+    "age": 30
+   },
+   {
+    "income": "n/a",
+    "segment": "b",
+    "age": 31
+   },
+   {
+    "income": null,
+    "segment": "c",
+    "age": 32
+   },
+   {
+    "income": 4441,
+    "segment": null,
+    "age": 33
+   },
+   {
+    "income": 4478,
+    "segment": "b",
+    "age": 34
+   },
+   {
+    "income": 4515,
+    "segment": "c",
+    "age": 35
+   },
+   {
+    "income": null,
+    "segment": "a",
+    "age": 36
+   },
+   {
+    "income": 4589,
+    "segment": "b",
+    "age": 37
+   },
+   {
+    "income": 4626,
+    "segment": "c",
+    "age": 38
+   },
+   {
+    "income": 4663,
+    "segment": "a",
+    "age": 39
+   },
+   {
+    "income": null,
+    "segment": "b",
+    "age": 40
+   },
+   {
+    "income": 4737,
+    "segment": "c",
+    "age": 41
+   },
+   {
+    "income": 4774,
+    "segment": "a",
+    "age": 42
+   },
+   {
+    "income": 4811,
+    "segment": null,
+    "age": 43
+   },
+   {
+    "income": null,
+    "segment": "c",
+    "age": 44
+   },
+   {
+    "income": 4885,
+    "segment": "a",
+    "age": 45
+   },
+   {
+    "income": "n/a",
+    "segment": "b",
+    "age": 46
+   },
+   {
+    "income": 4959,
+    "segment": "c",
+    "age": 47
+   },
+   {
+    "income": null,
+    "segment": "a",
+    "age": 48
+   },
+   {
+    "income": 5033,
+    "segment": "b",
+    "age": 49
+   },
+   {
+    "income": 5070,
+    "segment": "c",
+    "age": 50
+   },
+   {
+    "income": 5107,
+    "segment": "a",
+    "age": 51
+   },
+   {
+    "income": null,
+    "segment": "b",
+    "age": 52
+   },
+   {
+    "income": 5181,
+    "segment": null,
+    "age": 53
+   },
+   {
+    "income": 5218,
+    "segment": "a",
+    "age": 54
+   },
+   {
+    "income": 5255,
+    "segment": "b",
+    "age": 55
+   },
+   {
+    "income": null,
+    "segment": "c",
+    "age": 56
+   },
+   {
+    "income": 5329,
+    "segment": "a",
+    "age": 57
+   },
+   {
+    "income": 5366,
+    "segment": "b",
+    "age": 58
+   },
+   {
+    "income": 5403,
+    "segment": "c",
+    "age": 59
+   }
+  ],
+  "stats": {
+   "income": {
+    "kind": "numeric",
+    "edges": [
+     1074.0,
+     1492.1000000000001,
+     1895.4,
+     2361.6000000000004,
+     2820.4,
+     3238.5,
+     3686.2000000000003,
+     4078.4000000000005,
+     4544.6,
+     5010.8,
+     5403.0
+    ],
+    "props": [
+     0.10714285714285714,
+     0.09523809523809523,
+     0.09523809523809523,
+     0.10714285714285714,
+     0.09523809523809523,
+     0.09523809523809523,
+     0.10714285714285714,
+     0.09523809523809523,
+     0.09523809523809523,
+     0.10714285714285714
+    ],
+    "n": 84,
+    "missing": 0.3
+   },
+   "segment": {
+    "kind": "categorical",
+    "props": {
+     "a": 0.3333333333333333,
+     "b": 0.3333333333333333,
+     "c": 0.3333333333333333
+    },
+    "other": 0.0,
+    "n": 108,
+    "missing": 0.1
+   },
+   "age": {
+    "kind": "numeric",
+    "edges": [
+     20.0,
+     23.9,
+     27.8,
+     31.700000000000003,
+     35.6,
+     39.5,
+     43.400000000000006,
+     47.30000000000001,
+     51.2,
+     55.10000000000001,
+     59.0
+    ],
+    "props": [
+     0.1,
+     0.1,
+     0.1,
+     0.1,
+     0.1,
+     0.1,
+     0.1,
+     0.1,
+     0.1,
+     0.1
+    ],
+    "n": 120,
+    "missing": 0.0
+   }
+  }
+ }
 }

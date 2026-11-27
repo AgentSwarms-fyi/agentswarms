@@ -99,11 +99,13 @@ describe("describeModelHealth", () => {
 
   it("is honest about nothing having been measured", () => {
     const h = describeModelHealth(null, null);
-    // R546 added the live-traffic reading, null like the other two.
+    // R546 added the live-traffic reading, null like the other two; R549 the
+    // missing inputs, none.
     expect(h).toEqual({
       drift: null,
       evaluation: null,
       traffic: null,
+      missing: [],
       alerts: [],
       summary: null,
     });
@@ -120,7 +122,8 @@ describe("the server reads the latest of each, as the platform, against the live
     expect(code).toContain('.eq("status", "succeeded")');
     expect(code).toContain('.not("drift_score", "is", null)');
     expect(code).toContain('.from("ml_evaluations")');
-    expect(code.match(/\.order\("created_at", \{ ascending: false \}\)/g)?.length).toBe(2);
+    // Three since R549: the newest run that counted its missing inputs too.
+    expect(code.match(/\.order\("created_at", \{ ascending: false \}\)/g)?.length).toBe(3);
     expect(code).toContain("if (!p.version_id || drift.has(p.version_id)");
     expect(code).toContain("if (evaluation.has(e.version_id)) continue;");
   });
@@ -248,14 +251,17 @@ describe("live traffic in a model's health", () => {
 
   it("is read from the hourly check's table, only while it is recent, and never fails health", () => {
     const code = codeOnly(rd("src/utils/ml/health.server.ts"));
+    // Since R549 through one reader that falls back without the missing
+    // inputs before their migration, and to nothing before the table's.
     expect(code).toMatch(
-      /\.from\("ml_traffic_checks"\)\s*\.select\("version_id, score, checked_at"\)\s*\.in\("version_id", versionIds\)\s*\.gte\("checked_at", recent\)/,
+      /\.from\("ml_traffic_checks"\)\s*\.select\(cols\)\s*\.in\("version_id", versionIds\)\s*\.gte\("checked_at", since\)/,
     );
+    expect(code).toContain("trafficChecks(versionIds, recent),");
     expect(code).toContain("const recent = new Date(Date.now() - 48 * 3_600_000).toISOString();");
-    expect(code).toContain("for (const c of checks.error ? [] : (checks.data ?? [])) {");
+    expect(code).toContain("if (plain.error) return [];");
     // And the reading reaches the sentence.
     expect(code).toMatch(
-      /describeModelHealth\(\s*drift\.get\(v\) \?\? null,\s*evaluation\.get\(v\) \?\? null,\s*traffic\.get\(v\) \?\? null,?\s*\)/,
+      /describeModelHealth\(\s*drift\.get\(v\) \?\? null,\s*evaluation\.get\(v\) \?\? null,\s*traffic\.get\(v\) \?\? null,/,
     );
   });
 });

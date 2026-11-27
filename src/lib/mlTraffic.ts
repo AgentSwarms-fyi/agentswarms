@@ -26,15 +26,28 @@ export const TRAFFIC_WINDOW_HOURS = 24;
 export const TRAFFIC_MIN_ROWS = 200;
 /** At most this many requests are read for one version's window. */
 export const TRAFFIC_MAX_REQUESTS = 5_000;
-/** The batch path's own floor: a number seen fewer times than this is not compared. */
-const MIN_NUMERIC_VALUES = 10;
+/**
+ * The batch path's own floor: a feature with fewer values than this is not
+ * compared. Since R549 for a category too: an empty column is a missing
+ * input, not a distribution that moved.
+ */
+const MIN_VALUES = 10;
 
-export type NumericStat = { kind: "numeric"; edges: number[]; props: number[]; n?: number };
+export type NumericStat = {
+  kind: "numeric";
+  edges: number[];
+  props: number[];
+  n?: number;
+  /** Share of training rows with no usable value (R549); absent before it. */
+  missing?: number;
+};
 export type CategoricalStat = {
   kind: "categorical";
   props: Record<string, number>;
   other?: number;
   n?: number;
+  /** Share of training rows with no value (R549); absent before it. */
+  missing?: number;
 };
 export type FeatureStats = Record<string, NumericStat | CategoricalStat>;
 
@@ -42,8 +55,8 @@ export type FeatureStats = Record<string, NumericStat | CategoricalStat>;
  * What one request (or a window of them) looked like, against one version's
  * bins: per feature the count in each bin, and for a category the count of
  * each training value in the stats' own key order, then "other". A feature
- * is present when any row carried its key, even empty: the batch path counts
- * a column that exists and is all empty as all "other".
+ * is present when any row carried its key, even empty. Rows not counted in
+ * any bin are the ones that arrived without a usable value (R549).
  */
 export type TrafficProfile = { v: 1; rows: number; f: Record<string, number[]> };
 
@@ -52,8 +65,20 @@ export function featureStatsOf(value: unknown): FeatureStats | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const out: FeatureStats = {};
   for (const [name, raw] of Object.entries(value as Record<string, unknown>)) {
-    const st = raw as { kind?: unknown; edges?: unknown; props?: unknown; other?: unknown } | null;
+    const st = raw as {
+      kind?: unknown;
+      edges?: unknown;
+      props?: unknown;
+      other?: unknown;
+      missing?: unknown;
+    } | null;
     if (!st || typeof st !== "object") continue;
+    // A training rate only when it is one (R549): anything else reads as not
+    // recorded, which is the honest reading of a version trained before it.
+    const missing =
+      typeof st.missing === "number" && st.missing >= 0 && st.missing <= 1
+        ? { missing: st.missing }
+        : {};
     if (
       st.kind === "numeric" &&
       Array.isArray(st.edges) &&
@@ -62,7 +87,12 @@ export function featureStatsOf(value: unknown): FeatureStats | null {
       st.edges.every((e) => typeof e === "number" && Number.isFinite(e)) &&
       st.props.every((p) => typeof p === "number")
     ) {
-      out[name] = { kind: "numeric", edges: st.edges as number[], props: st.props as number[] };
+      out[name] = {
+        kind: "numeric",
+        edges: st.edges as number[],
+        props: st.props as number[],
+        ...missing,
+      };
     } else if (st.kind === "categorical" && st.props && typeof st.props === "object") {
       const props = st.props as Record<string, unknown>;
       if (!Object.values(props).every((p) => typeof p === "number")) continue;
@@ -70,6 +100,7 @@ export function featureStatsOf(value: unknown): FeatureStats | null {
         kind: "categorical",
         props: props as Record<string, number>,
         other: typeof st.other === "number" ? st.other : 0,
+        ...missing,
       };
     }
   }
@@ -202,13 +233,14 @@ export function trafficDrift(stats: FeatureStats, profile: TrafficProfile): Traf
     let expected: number[];
     if (st.kind === "numeric") {
       const total = counts.reduce((x, y) => x + y, 0);
-      if (total < MIN_NUMERIC_VALUES) continue;
+      if (total < MIN_VALUES) continue;
       actual = counts.map((c) => c / total);
       expected = st.props;
     } else {
       const cats = Object.keys(st.props);
       const total = counts.reduce((x, y) => x + y, 0);
-      const known = cats.map((_, i) => (total ? (counts[i] ?? 0) / total : 0));
+      if (total < MIN_VALUES) continue;
+      const known = cats.map((_, i) => (counts[i] ?? 0) / total);
       const seen = known.reduce((x, y) => x + y, 0);
       actual = [...known, Math.max(0, 1 - seen)];
       expected = [...cats.map((c) => st.props[c]), st.other ?? 0];

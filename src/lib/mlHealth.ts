@@ -11,7 +11,9 @@
 //
 // A third reading joined them in R546: the hourly check on LIVE TRAFFIC
 // (R545), for a model answering requests online a few rows at a time, which
-// no prediction run measures.
+// no prediction run measures. A fourth in R549: features ARRIVING EMPTY far
+// more often than in training, which drift cannot see (it measures the values
+// that arrived) and a retrain does not mend.
 //
 // This module turns the latest of each into the words that travel with the
 // model wherever it is offered. Pure, so the agent tool, the analyst's
@@ -47,10 +49,23 @@ export type TrafficReading = {
 /** How a live-traffic alert begins, so a list can send it to the right tab. */
 export const LIVE_TRAFFIC_ALERT = "Drift in live traffic:";
 
+/** How a missing-inputs alert begins: read on the Predictions tab too (R549). */
+export const MISSING_INPUTS_ALERT = "Missing inputs:";
+
+/** Features arriving empty far more often than in training (R549). */
+export type MissingReading = {
+  /** A batch run's rows, or the hourly check's last day of online requests. */
+  source: "batch" | "traffic";
+  /** How many features; which ones is on the owner's model page. */
+  count: number;
+  at: string;
+};
+
 export type ModelHealth = {
   drift: DriftReading | null;
   evaluation: EvaluationReading | null;
   traffic: TrafficReading | null;
+  missing: MissingReading[];
   /**
    * What is currently wrong, as full sentences. Empty means nothing the
    * platform can see — which is not the same as healthy, and the summary
@@ -69,6 +84,7 @@ export function describeModelHealth(
   drift: DriftReading | null,
   evaluation: EvaluationReading | null,
   traffic: TrafficReading | null = null,
+  missing: MissingReading[] = [],
 ): ModelHealth {
   const alerts: string[] = [];
   const short: string[] = [];
@@ -107,6 +123,22 @@ export function describeModelHealth(
     );
     short.push(`open live-traffic drift alert (PSI ${num(traffic.score)} on ${day(traffic.at)})`);
   }
+  // The count travels, not the names: which features, and how often, is on
+  // the owner's own page, as it is for live-traffic drift.
+  for (const m of missing) {
+    if (m.count <= 0) continue;
+    const what = `${m.count} feature${m.count === 1 ? "" : "s"} the model uses`;
+    const where =
+      m.source === "traffic"
+        ? `in the last day of online requests, checked on ${day(m.at)}`
+        : `in the rows scored on ${day(m.at)}`;
+    alerts.push(
+      `${MISSING_INPUTS_ALERT} ${where}, ${what} arrived empty far more often than in training, so those rows were scored on filled-in values; check what sends the data before trusting those predictions (retraining will not fix it).`,
+    );
+    short.push(
+      `missing inputs (${what}, ${m.source === "traffic" ? "live traffic" : "a batch run"} on ${day(m.at)})`,
+    );
+  }
   let summary: string | null = short.length ? short.join("; ") : null;
   if (!summary && evaluation) {
     summary = `evaluated ${evaluation.verdict ?? "without a verdict"} on ${day(evaluation.at)} (${evaluation.metric} ${num(evaluation.value)})`;
@@ -117,7 +149,7 @@ export function describeModelHealth(
   if (!summary && traffic) {
     summary = `live traffic steady on ${day(traffic.at)} (PSI ${num(traffic.score)})`;
   }
-  return { drift, evaluation, traffic, alerts, summary };
+  return { drift, evaluation, traffic, missing, alerts, summary };
 }
 
 /** The line an agent tool or a planner carries beside the model's name. */

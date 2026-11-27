@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "missing-inputs",
+    date: "2026-11-27",
+    title: "Inputs that stop arriving",
+    body: "When a feature a model uses starts arriving empty far more often than it was in training, the model's Predictions tab says which, and you are told. Drift cannot see it, and retraining would not fix it.",
+    link: { to: "/ml" },
+    cta: "Open ML models",
+  },
+  {
     id: "drift-over-time",
     date: "2026-11-27",
     title: "Drift over time",

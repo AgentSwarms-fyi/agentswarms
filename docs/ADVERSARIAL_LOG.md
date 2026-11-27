@@ -109,6 +109,24 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-27 — R549: an input that stopped arriving read as stable
+
+**Why this round.** Drift measures the values that arrived. A feed that stops sending a field, or a join that starts leaving it empty, leaves a few values that still look like training, while every other row is scored on the value the pipeline fills in for a blank. Read as the person whose model's answers quietly changed.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A feature that stopped arriving was invisible | S2 | **Found by the round's question.** Drift drops empty values: a number column gone 90% empty read stable on the 10% left, and one gone entirely was skipped. Each feature is now counted for how often it arrives with no usable value, against training's own share. |
+| An empty category column read as drift, and could start a retrain | S2 | **Found in the UI test.** A batch whose `region` was empty scored PSI 17.08, all of it region counted as 100% "other": a drift alert saying to retrain, a pipeline set to start on drift would have, and nothing a retrain mends. A category now needs ten values to be compared, the floor a number always had; the parity fixture has the case. |
+| The newest run that could not count hid an older one that had | S3 | **Found in review.** A run too small to judge stores a JSON null, and `result->missing IS NOT NULL` passes it (`->` returns jsonb null); health then took it as the latest reading. Now `->>`, and an array check. |
+| One alert clock for two alerts | S3 | **Found in design.** The hourly check's day-long claim was drift's; a version that drifted and lost a field the same day would have told the owner about one. Missing inputs claim their own column. |
+
+**Checked and sound.**
+- **One count in three places**, held by the sandbox-generated fixture: training's share, a batch run's count and an online request's counts (rows in no bin are the empty ones, so requests answered before this round count too).
+- **Versions trained before it** are named only when a feature all but stopped (95% of rows), not against an assumed 0%.
+- **It starts nothing**, tested: the only workflow start in the hourly check is drift's.
+- **Before migration 20261209000000** the drift check and its alerts go on unchanged and the missing inputs are not alerted on (tested; the gate only saves two writes that would fail).
+- Mutation-checked: 7 of 8 guards caught; the eighth is that gate.
+
 ### 2026-11-27 — R548: drift was a reading, never a history
 
 **Why this round.** A model's drift was a badge per batch run and, since R545, the latest live-traffic verdict. Neither says since when, or whether last week's alert was one bad batch or a slide. Read as the person deciding whether to retrain.

@@ -1248,6 +1248,7 @@ def _feature_stats(df, schema, features):
     import pandas as pd
     by = {e['name']: e for e in schema}
     stats = {}
+    rows = max(1, len(df))
     for f in features:
         d = by[f]['dtype']
         s = df[f]
@@ -1259,15 +1260,19 @@ def _feature_stats(df, schema, features):
             if len(edges) < 3:
                 continue
             counts, _ = np.histogram(v, bins=edges)
+            # How often the feature had no usable value (R549), counted as
+            # _missing_rates counts a scored row, so the two can be compared.
             stats[f] = {'kind': 'numeric', 'edges': [float(x) for x in edges],
-                        'props': (counts / max(1, counts.sum())).tolist(), 'n': int(len(v))}
+                        'props': (counts / max(1, counts.sum())).tolist(), 'n': int(len(v)),
+                        'missing': round(1.0 - len(v) / rows, 4)}
         elif d == 'categorical':
             vc = s.dropna().astype(str).value_counts(normalize=True)
             if len(vc) == 0:
                 continue
             top = vc.iloc[:20]
             stats[f] = {'kind': 'categorical', 'props': {str(k): float(x) for k, x in top.items()},
-                        'other': float(max(0.0, 1.0 - float(top.sum()))), 'n': int(s.notna().sum())}
+                        'other': float(max(0.0, 1.0 - float(top.sum()))), 'n': int(s.notna().sum()),
+                        'missing': round(float(s.isna().sum()) / rows, 4)}
     return stats
 
 
@@ -1445,6 +1450,12 @@ def _drift(stats, df):
             actual = counts / max(1, counts.sum())
             expected = np.array(st['props'], dtype=float)
         else:
+            # The same floor as a number (R549). FOUND IN THE UI TEST: a
+            # category column that arrived EMPTY read as all "other", a PSI of
+            # 17 that raised a drift alert and could start a retrain, for what
+            # is a missing input (_missing_rates names it) that no retrain mends.
+            if int(s.notna().sum()) < 10:
+                continue
             vc = s.dropna().astype(str).value_counts(normalize=True)
             cats = list(st['props'].keys())
             seen = sum(float(vc.get(c, 0.0)) for c in cats)
@@ -1459,6 +1470,33 @@ def _drift(stats, df):
         return None
     ranked = sorted(out.items(), key=lambda kv: -kv[1])
     return {'score': round(float(ranked[0][1]), 4), 'features': {k: round(v, 4) for k, v in ranked}, 'rows': int(len(df))}
+
+
+def _missing_rates(stats, df):
+    # How often each feature the training data described arrived with no
+    # usable value (R549): a column that is absent, empty, or for a number not
+    # a number. _drift measures only the values that DID arrive, so a feed
+    # that stopped sending a field reads as stable there while every row is
+    # scored on a filled-in value. The same count the app makes of an online
+    # request (src/lib/mlMissingInputs.ts); only features with any missing
+    # value are listed.
+    import pandas as pd
+    n = int(len(df))
+    if n == 0:
+        return None
+    rates = {}
+    for f, st in (stats or {}).items():
+        if f not in df.columns:
+            rates[f] = 1.0
+            continue
+        s = df[f]
+        if st['kind'] == 'numeric':
+            have = int(pd.to_numeric(s, errors='coerce').notna().sum())
+        else:
+            have = int(s.notna().sum())
+        if have < n:
+            rates[f] = round(1.0 - have / n, 4)
+    return {'rows': n, 'rates': rates}
 
 
 # ── Clustering, anomaly detection, recommendation ───────────────────────────
@@ -2590,6 +2628,7 @@ def _predict(cfg, warnings_):
         raise RuntimeError('No rows to score.')
     # Ten rows is the least a distribution can be compared on.
     drift = _drift(art.get('feature_stats'), df) if len(df) >= 10 else None
+    missing_rates = _missing_rates(art.get('feature_stats'), df) if art.get('feature_stats') else None
     missing = [f for f in art['features'] if f not in df.columns]
     if missing:
         warnings_.append('Input is missing %d feature column(s), treated as empty: %s' % (len(missing), ', '.join(missing[:8])))
@@ -2714,7 +2753,7 @@ def _predict(cfg, warnings_):
                                     int(cfg.get('explain_top_k') or 8))
         except Exception as e:
             warnings_.append('Could not explain these rows: %s' % e)
-    return {'mode': 'predict', 'row_count': int(len(out)), 'total_input_rows': int(total), 'output': written, 'drift': drift,
+    return {'mode': 'predict', 'row_count': int(len(out)), 'total_input_rows': int(total), 'output': written, 'drift': drift, 'missing': missing_rates,
             'columns': cols, 'sample': sample, 'digest_columns': digest_cols, 'digest_rows': digest_rows,
             'explanations': explanations, 'algorithm': art.get('algorithm')}
 

@@ -65,7 +65,7 @@ describe("the batch path's formula, on live traffic", () => {
 
   it("was generated from the program the sandbox runs, not written by hand", () => {
     const gen = rd("tests/fixtures/trafficDriftParity.gen.py");
-    expect(gen).toContain('src.index("def _drift(stats, df):")');
+    expect(gen).toContain('_drift = cut("def _drift(stats, df):")["_drift"]');
     expect(gen).toContain("df = pd.DataFrame(json.loads(json.dumps(rows)))");
     // And the batch path still builds its frame that way.
     expect(rd("src/utils/ml/pyTrain.ts")).toContain("df = pd.DataFrame(inp['rows'])");
@@ -155,6 +155,8 @@ type Row = Record<string, unknown>;
 const db = vi.hoisted(() => ({
   tables: {} as Record<string, Record<string, unknown>[]>,
   missing: new Set<string>(),
+  /** "table.column" a migration has not added yet (PGRST204 on write or read). */
+  noColumn: new Set<string>(),
 }));
 
 vi.mock("@/integrations/supabase/client.server", () => {
@@ -169,8 +171,10 @@ vi.mock("@/integrations/supabase/client.server", () => {
     desc: string | null = null;
     cap = Infinity;
     constructor(public table: string) {}
+    cols: string[] = [];
     select(cols?: string, opts?: { head?: boolean }) {
       if (opts?.head) this.head = true;
+      if (this.op === "select") this.cols = (cols ?? "").split(",").map((x) => x.trim());
       for (const c of (cols ?? "").split(",").map((x) => x.trim())) {
         const m = /^(\w+):(\w+)->(\w+)$/.exec(c);
         if (m) this.alias.push([m[1], m[2], m[3]]);
@@ -257,6 +261,18 @@ vi.mock("@/integrations/supabase/client.server", () => {
       });
     }
     result() {
+      const named = this.op === "select" ? this.cols : Object.keys(this.patch);
+      const absent = named.find((c) => db.noColumn.has(`${this.table}.${c}`));
+      if (absent) {
+        return {
+          data: null,
+          count: null,
+          error: {
+            code: "PGRST204",
+            message: `Could not find the '${absent}' column of '${this.table}' in the schema cache`,
+          },
+        };
+      }
       if (db.missing.has(this.table)) {
         return {
           data: null,
@@ -321,6 +337,7 @@ function requests(
 
 function seed(reqs: Row[]) {
   db.missing.clear();
+  db.noColumn.clear();
   db.tables = {
     ml_models: [{ ...MODEL, updated_at: "2026-11-26T00:00:00Z", production_version_id: "v-prod" }],
     ml_model_versions: [{ id: "v-prod", version: 3, feature_stats: STATS }],
@@ -397,7 +414,8 @@ describe("a day of live traffic", () => {
 describe("the hourly check", () => {
   it("records the verdict, alerts the owner, and asks the workflows", async () => {
     seed(requests());
-    expect(await runTrafficDriftChecks(NOW)).toEqual({ checked: 1, alerted: 1 });
+    // Two alerts: the drift, and (R549) the two features no request sent.
+    expect(await runTrafficDriftChecks(NOW)).toEqual({ checked: 1, alerted: 2 });
     expect(db.tables.ml_traffic_checks[0]).toMatchObject({
       version_id: "v-prod",
       model_id: MODEL.id,
@@ -430,17 +448,19 @@ describe("the hourly check", () => {
     await runTrafficDriftChecks(NOW);
     const hourLater = new Date(NOW.getTime() + 3_600_000);
     expect(await runTrafficDriftChecks(hourLater)).toEqual({ checked: 1, alerted: 0 });
-    expect(auditEvent).toHaveBeenCalledTimes(1);
-    // A day on, still drifting: once more.
+    expect(auditEvent).toHaveBeenCalledTimes(2);
+    // A day on, still drifting: once more. The missing-inputs alert keeps its
+    // own clock, so it is not raised again with it (R549).
     db.tables.ml_traffic_checks[0].alerted_at = new Date(
       NOW.getTime() - 25 * 3_600_000,
     ).toISOString();
     expect((await runTrafficDriftChecks(NOW)).alerted).toBe(1);
+    expect(vi.mocked(auditEvent).mock.calls[2][0]).toMatchObject({ action: "ml.drift.alert" });
   });
 
   it("tells the owner, but starts none of their work, when only others' requests drifted", async () => {
     seed(requests({ owner: (i) => i % 2 === 0 }));
-    expect((await runTrafficDriftChecks(NOW)).alerted).toBe(1);
+    expect((await runTrafficDriftChecks(NOW)).alerted).toBe(2);
     expect(alertStarts).not.toHaveBeenCalled();
     expect((vi.mocked(notifyUser).mock.calls[0][1] as { body: string }).body).toContain(
       "Consider retraining.",
@@ -475,6 +495,9 @@ describe("the hourly check", () => {
               i % 10
             ],
             region: i % 5 < 3 ? "eu" : "us",
+            // Every training feature sent, as training had them: nothing missing.
+            absent: i % 2,
+            sparse: (i + 1) % 2,
           },
         ]),
       },
@@ -482,6 +505,7 @@ describe("the hourly check", () => {
     seed(calm);
     expect(await runTrafficDriftChecks(NOW)).toEqual({ checked: 1, alerted: 0 });
     expect(db.tables.ml_traffic_checks[0].score as number).toBeLessThan(0.25);
+    expect(db.tables.ml_traffic_checks[0].missing).toEqual([]);
   });
 });
 
@@ -514,7 +538,7 @@ describe("the day's verdict, kept for the history (R548)", () => {
   it("before its migration: no history, and the check and its alert go on", async () => {
     seed(requests());
     db.missing.add("ml_traffic_daily");
-    expect(await runTrafficDriftChecks(NOW)).toEqual({ checked: 1, alerted: 1 });
+    expect(await runTrafficDriftChecks(NOW)).toEqual({ checked: 1, alerted: 2 });
     expect(db.tables.ml_traffic_checks).toHaveLength(1);
   });
 });
@@ -565,6 +589,91 @@ describe("found from the UI in R545", () => {
     const card = rd("src/components/ml/LiveTrafficCard.tsx");
     expect(card).toMatch(
       /view\.productionUnmeasured !== null \?[\s\S]{0,400}holds no record of how its[\s\S]{0,300}: view\.versions\.length === 0 \?/,
+    );
+  });
+});
+
+// ── Inputs that stop arriving (R549) ────────────────────────────────────
+
+/** The fixture's stats with training missing rates, as a version trained since R549 holds. */
+const STATS_WITH_RATES = Object.fromEntries(
+  Object.entries(STATS as Record<string, Row>).map(([k, v]) => [
+    k,
+    { ...v, missing: { amount: 0.05, tenure: 0, plan: 0, region: 0, absent: 0.95, sparse: 0 }[k] },
+  ]),
+);
+
+describe("inputs that stop arriving (R549)", () => {
+  it("names a feature no request sent, tells the owner once a day, and starts nothing", async () => {
+    seed(requests());
+    await runTrafficDriftChecks(NOW);
+    // Trained before rates were recorded: named only when it all but stopped.
+    expect(db.tables.ml_traffic_checks[0].missing).toEqual([
+      { feature: "absent", rate: 1, training: null },
+      { feature: "sparse", rate: 0.9769, training: null },
+    ]);
+    const missing = vi
+      .mocked(auditEvent)
+      .mock.calls.find(([e]) => (e as { action: string }).action === "ml.inputs.missing")?.[0] as
+      { detail: Row } | undefined;
+    expect(missing?.detail).toMatchObject({ source: "traffic", version_id: "v-prod", rows: 260 });
+    const note = vi.mocked(notifyUser).mock.calls[1][1] as { title: string; body: string };
+    expect(note.title).toBe('Inputs missing on "churn" live traffic: 2 features');
+    expect(note.body).toContain("absent empty in 100% of rows (not recorded at training)");
+    expect(note.body).toContain("Retraining will not fix this");
+    // Only the drift asked the workflows.
+    expect(vi.mocked(alertStarts).mock.calls.map(([a]) => a.event)).toEqual(["drift"]);
+
+    vi.mocked(auditEvent).mockClear();
+    await runTrafficDriftChecks(new Date(NOW.getTime() + 3_600_000));
+    expect(auditEvent).not.toHaveBeenCalled();
+  });
+
+  it("with training's own rates: flagged on the rise, not on the rate", async () => {
+    // Its own version: a version's stats are read once per process.
+    seed(requests().map((r) => ({ ...r, version_id: "v-rates" })));
+    db.tables.ml_model_versions.push({
+      id: "v-rates",
+      version: 4,
+      feature_stats: STATS_WITH_RATES,
+    });
+    const [t] = await liveTraffic(MODEL, NOW);
+    // amount 5% now and 5% in training, tenure up 7.7 points, absent up 5:
+    // none named. The rest rose by ten points or more, largest rise first.
+    expect(t.missing).toEqual([
+      { feature: "sparse", rate: 0.9769, training: 0 },
+      { feature: "region", rate: 0.2, training: 0 },
+      { feature: "plan", rate: 0.1192, training: 0 },
+    ]);
+  });
+
+  it("a version with enough rows to count, too few for drift, is checked", async () => {
+    seed(requests().slice(0, 150));
+    expect(await runTrafficDriftChecks(NOW)).toEqual({ checked: 1, alerted: 1 });
+    expect(db.tables.ml_traffic_checks[0]).toMatchObject({ score: null, row_count: 150 });
+    expect(vi.mocked(auditEvent).mock.calls.map(([e]) => (e as { action: string }).action)).toEqual(
+      ["ml.inputs.missing"],
+    );
+  });
+
+  it("below its minimum: not checked at all", async () => {
+    seed(requests().slice(0, 99));
+    expect(await runTrafficDriftChecks(NOW)).toEqual({ checked: 0, alerted: 0 });
+    expect(db.tables.ml_traffic_checks).toEqual([]);
+  });
+
+  it("before migration 20261209000000: the drift check and its alert go on as they were", async () => {
+    seed(requests());
+    db.noColumn.add("ml_traffic_checks.missing");
+    db.noColumn.add("ml_traffic_checks.missing_alerted_at");
+    expect(await runTrafficDriftChecks(NOW)).toEqual({ checked: 1, alerted: 1 });
+    expect(db.tables.ml_traffic_checks[0]).toMatchObject({
+      version_id: "v-prod",
+      score: EXPECTED.score,
+    });
+    expect(db.tables.ml_traffic_checks[0]).not.toHaveProperty("missing");
+    expect(vi.mocked(auditEvent).mock.calls.map(([e]) => (e as { action: string }).action)).toEqual(
+      ["ml.drift.alert"],
     );
   });
 });

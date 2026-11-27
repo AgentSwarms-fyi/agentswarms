@@ -33,6 +33,7 @@ import { ML_JOB_LIVE, type MlFeatureSchemaEntry, type MlForecastPoint } from "@/
 import { JobStatusChip } from "@/components/ml/mlUi";
 import { fmtDuration, fmtInt, relTime } from "@/components/ml/mlFormat";
 import { ML_DRIFT_MODERATE, type MlContribution, type MlDrift } from "@/utils/ml/types";
+import { sharePct, type MissingInput } from "@/lib/mlMissingInputs";
 
 const LIVE = new Set<string>(ML_JOB_LIVE);
 
@@ -205,7 +206,10 @@ export function PredictionsPanel({
                       {fmtDuration(r.started_at ?? r.created_at, r.finished_at)}
                     </td>
                     <td className="px-3 py-2">
-                      <DriftBadge row={r} />
+                      <div className="flex flex-wrap items-center gap-1">
+                        <DriftBadge row={r} />
+                        <MissingBadge row={r} />
+                      </div>
                     </td>
                     <td className="px-3 py-2 text-right">
                       {LIVE.has(r.status) && !shared ? (
@@ -864,6 +868,31 @@ function parseList(v: unknown): unknown[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * Features a run's rows arrived without, far more often than in training
+ * (R549). Beside the drift badge because drift cannot show it: drift
+ * measures the values that arrived.
+ */
+function MissingBadge({ row }: { row: { result: unknown } }) {
+  const list = (row.result as { missing?: MissingInput[] | null } | null)?.missing;
+  if (!Array.isArray(list) || list.length === 0) return null;
+  const lines = list
+    .slice(0, 8)
+    .map(
+      (m) =>
+        `${m.feature}: empty in ${sharePct(m.rate)} of rows (${m.training === null ? "not recorded at training" : `${sharePct(m.training)} in training`})`,
+    )
+    .join("\n");
+  return (
+    <span
+      className="inline-flex rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-400"
+      title={`Arrived empty far more often than in training, so these rows were scored on a filled-in value. Retraining will not fix it.\n${lines}`}
+    >
+      {list.length} input{list.length === 1 ? "" : "s"} empty
+    </span>
+  );
 }
 
 /** The population stability of a run's rows against the training data. */

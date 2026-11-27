@@ -916,6 +916,54 @@ The hourly check records its verdict in `ml_traffic_checks`, which needs
 migration `20261207000000`. Without it the card still measures on demand; the
 check records nothing and alerts nobody.
 
+### Missing inputs
+
+Drift measures the values that **arrived**. A feed that stops sending a
+field, or a join that starts leaving it empty, reads as stable there: the few
+values still coming in look like training, and every other row is scored on
+the value the pipeline fills in for a blank. So each feature the training data
+described is also counted for how often it arrived with **no usable value**
+(the field absent, empty, or for a number not a number), against how often it
+was empty in training (R549).
+
+- **Named at ten points above training.** A feature empty in 2% of training
+  rows is named when it arrives empty in 12% or more. A feature that was often
+  empty in training is not news for being often empty now.
+- **Versions trained before R549** never recorded the training share, so
+  their features are named only when they all but stopped arriving (in 95% of
+  rows or more). A retrain records it.
+- **From 100 rows.** A single share settles sooner than a distribution over
+  ten bins, so this needs fewer rows than drift's 200.
+- **One count, three places.** Training records the share beside the bins; a
+  batch run counts its rows; an online request's counts are already kept (a
+  value that lands in no bin is a missing one, so requests answered before
+  this round are counted too). A test holds the three to the same figures,
+  from rows the batch program counted itself.
+- **Where it shows.** The **Live traffic** card says which features are
+  arriving empty and how often against training; a run in the Predictions list
+  is marked **N inputs empty**, with the features in its tooltip.
+- **Who is told.** The hourly check tells the owner at most once a day per
+  version, on its own clock, so it never holds a drift alert back. A batch run
+  from a table tells the owner for that run; online requests are left to the
+  hourly check, so a burst of them is one alert. Both are audited as
+  `ml.inputs.missing`, with `source` `traffic` or `batch`.
+- **It starts nothing.** Retraining does not mend a feed that stopped sending
+  a field, so no ML pipeline starts on it, and the alert says to check what
+  sends the data.
+- **And it is not drift.** A feature with fewer than ten values among the rows
+  is left out of the drift measure: numbers always were, and since R549
+  categories are too. Before, a category column that arrived empty counted as
+  all "other", a PSI of 17 in the round's own test, which raised a drift alert
+  and could start a retrain for what is a missing input.
+- **Part of the model's health**, under ML operations → **Needs a look**
+  (which opens the Predictions tab) and with the model wherever it travels:
+  how many features, not which.
+
+The hourly check records it in `ml_traffic_checks`, which needs migration
+`20261209000000`. Until then a batch run is still marked and its owner told,
+and the drift check and its alerts are unchanged; only the live-traffic
+verdict is not kept or alerted on.
+
 ## Why this row got this answer
 
 The model page shows what the model relies on **overall** — permutation

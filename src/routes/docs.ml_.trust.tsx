@@ -94,6 +94,33 @@ function MlTrustPage() {
           the AI Analyst and the Playground, as a headline and a PSI without the features.
         </li>
       </UL>
+      <H3 id="missing-inputs">Missing inputs</H3>
+      <P>
+        Drift measures the values that arrived, so a feed that stops sending a field reads as stable
+        while every row is scored on a filled-in value. Each feature is also counted for how often
+        it arrived with no usable value, against how often it was empty in training.
+      </P>
+      <UL>
+        <li>
+          Named at ten points above its training share, from 100 rows. A version trained before this
+          records no share, so its features are named only when they arrive empty in 95% of rows or
+          more.
+        </li>
+        <li>
+          The <strong>Live traffic</strong> card names the features; a run in the list is marked{" "}
+          <strong>N inputs empty</strong>.
+        </li>
+        <li>
+          The owner is told once a day per version for live traffic, and for each batch run from a
+          table (<C>ml.inputs.missing</C>). Nothing starts: retraining does not mend a feed. Keeping
+          the live verdict needs migration <C>20261209000000</C>.
+        </li>
+        <li>
+          It is not drift: a feature with fewer than ten values among the rows is left out of the
+          drift measure, so a category column that arrived empty no longer reads as all
+          &ldquo;other&rdquo;.
+        </li>
+      </UL>
 
       <H2 id="explain">Why this row got this answer</H2>
       <P>

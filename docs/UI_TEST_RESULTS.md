@@ -15,6 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-27 — R549: inputs that stop arriving
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab, before migration 20261209000000 was applied. No training table on this account had ever held an empty value (a read-only query over every version's distribution), so the round made one: `analytics.r549_missing_inputs_test`, a copy of `revenue_facts` with `region` emptied in every row and `net_usd` in 353 of 836 (42%), made in the Lakehouse SQL editor and left for the owner to delete.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| "revenue_facts plan classifier" → Predictions | the Live traffic card | the new last line: a feature empty in at least 10 more of every 100 rows than in training is named, from 100 rows, once a day, and starts nothing. No requests in the last day, so no verdict; older runs carry no chip |
+| Train new version | 5-minute budget | v10 trained in 1 min 57 s as a candidate (production stayed v7); its stored distribution reads `missing: 0` for all three features, so the trainer change ran in the real sandbox |
+| Batch prediction, v7 (production, trained before shares were recorded) | the test table | succeeded, 836 rows; **1 input empty**, tooltip "region: empty in 100% of rows (not recorded at training)". net_usd at 42% rightly not named: below the 95% floor for a version without shares |
+| Same run | its drift | **high · 17.08**, all of it region: an empty category counted as all "other". So the one run said "drift, consider retraining" and "missing, retraining will not fix it", and a pipeline set to start on drift would have retrained for nothing (fixed: a category needs ten values to be measured for drift, as a number always did; parity case added) |
+| Batch prediction, v10 | the test table | **2 inputs empty**: region 100% (0% in training), net_usd 42% (0% in training) |
+| ML operations → Needs a look | the page | "Missing inputs: in the rows scored on 2026-11-27, 1 feature the model uses arrived empty far more often than in training … (retraining will not fix it)", linking to the model's Predictions tab |
+| Notifications | the bell | "Inputs missing on "revenue_facts plan classifier": 2 features", naming the run, the table and both shares against training |
+| Batch prediction, v7, after the fix (stack rebuilt) | the test table again | succeeded, 836 rows: drift **moderate · 0.11** (customer_name 0.11, net_usd 0.02; region left out of drift, as a missing input is), and **1 input empty**, region 100% (not recorded at training). No drift alert: 0.11 is below the threshold |
+
 ## 2026-11-27 — R548: drift over time
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab, before migration 20261208000000 was applied. The model "revenue_facts plan classifier" has 11 batch runs with drift in the last 90 days (found with a read-only query).

@@ -11,6 +11,13 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { auditEvent } from "@/utils/audit.server";
 import { notifyUser } from "@/utils/notify.server";
+import {
+  missingInputs,
+  missingLine,
+  missingRatesOf,
+  type MissingRates,
+} from "@/lib/mlMissingInputs";
+import { featureStatsOf } from "@/lib/mlTraffic";
 import { startedSentence } from "@/lib/workflowAlerts";
 import { alertStarts } from "@/utils/workflows/alertTriggers.server";
 import { beginDecision, type DecisionKind } from "@/utils/provenance/decision.server";
@@ -55,6 +62,8 @@ export type MlPredictResult = {
   warnings?: string[];
   elapsed_seconds?: number;
   drift?: MlDrift | null;
+  /** How often each feature arrived empty in the scored rows (R549). */
+  missing?: MissingRates | null;
   /** One entry per explained row, each already sorted by absolute weight. */
   explanations?: MlContribution[][] | null;
 };
@@ -443,7 +452,7 @@ export async function finalizePrediction(
     supabaseAdmin.from("ml_models").select("*").eq("id", row.model_id).maybeSingle(),
     supabaseAdmin
       .from("ml_model_versions")
-      .select("version")
+      .select("version, feature_stats")
       .eq("id", row.version_id)
       .maybeSingle(),
   ]);
@@ -468,6 +477,12 @@ export async function finalizePrediction(
   }
   const r = body.result as MlPredictResult;
   const now = new Date().toISOString();
+  // Inputs that arrived empty far more often than in training (R549): the
+  // verdict is kept on the run, [] when none did, null when the run could
+  // not say (too few rows, or a version with no training distribution).
+  const stats = featureStatsOf(version?.feature_stats ?? null);
+  const rates = missingRatesOf(r.missing ?? null);
+  const missing = stats && rates ? missingInputs(stats, rates) : null;
   const limits = await getPlatformResources();
   const digest = resultDigest(r.digest_columns, r.digest_rows as never[]);
   const { data: claimed } = await supabaseAdmin
@@ -488,6 +503,7 @@ export async function finalizePrediction(
         result_digest: digest,
         elapsed_seconds: r.elapsed_seconds ?? null,
         drift: (r.drift ?? null) as Json,
+        missing: missing as unknown as Json,
         // FOUND FROM THE UI. This object is an explicit whitelist, not a
         // spread of what the program returned, so a new field computed in
         // Python and read in React still has to be named HERE — and when it is
@@ -573,6 +589,27 @@ export async function finalizePrediction(
         link: `/ml/${model.id}`,
       });
     }
+  }
+  // A table run whose inputs arrived empty (R549). Online requests are counted
+  // as a day by the hourly check instead, so a burst of them is one alert,
+  // not one per request. Nothing starts: a retrain does not mend the feed.
+  if (missing?.length && row.kind !== ROWS_KIND && model) {
+    auditEvent({
+      userId: row.user_id,
+      action: "ml.inputs.missing",
+      resourceType: "ml_model",
+      resourceId: row.model_id,
+      resourceName: model.name,
+      detail: { source: "batch", prediction_id: id, rows: rates?.rows ?? null, features: missing },
+    });
+    const table = input.kind === "rows" ? null : `${input.schema}.${input.table}`;
+    void notifyUser(model.user_id, {
+      title: `Inputs missing on "${model.name}": ${missing.length} feature${missing.length === 1 ? "" : "s"}`,
+      body:
+        `In the rows scored by run ${id.slice(0, 8)}${table ? ` from ${table}` : ""}, ${missingLine(missing)}. ` +
+        "Those rows were scored on a filled-in value. Retraining will not fix this: check the table and what fills it.",
+      link: `/ml/${model.id}?tab=predictions`,
+    });
   }
   console.log(
     `[ml-predict] ${JSON.stringify({

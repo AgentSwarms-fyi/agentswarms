@@ -16,6 +16,11 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261209000000`** (R549) so the hourly live-traffic
+  check can keep and alert on missing inputs: it adds `missing` and
+  `missing_alerted_at` to `ml_traffic_checks`. Until then a batch run is
+  still marked and its owner told; the drift check and its alerts are
+  unchanged.
 - **Apply migration `20261208000000`** (R548) to keep a daily history of
   live-traffic drift: it adds `ml_traffic_daily` (owner reads only). Until
   then the Drift over time chart draws batch runs alone and says why; the
@@ -323,6 +328,18 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Missing inputs** (R549). Drift measures the values that arrived, so a
+  feed that stopped sending a field read as stable while every row was scored
+  on a filled-in value. Each feature is now counted for how often it arrives
+  with no usable value against how often it was empty in training (newly
+  recorded by every training run), on batch runs and on live traffic; one
+  ten points above training is named on the Live traffic card and on the run,
+  the owner is told (`ml.inputs.missing`), and it is part of the model's
+  health. It starts no pipeline: retraining does not mend a feed. Versions
+  trained before it are named only when a feature all but stopped arriving.
+  A category with fewer than ten values in the rows is no longer measured for
+  drift, as a number already was: an empty one used to read as all "other"
+  and raise a drift alert (a PSI of 17 in the UI test).
 - **Drift over time** (R548). The model's Predictions tab draws the last 90
   days of drift: each batch run's PSI and each day's live-traffic PSI against
   the alert threshold, the highest of a day rather than an average, with a

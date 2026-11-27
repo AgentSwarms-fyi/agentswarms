@@ -3577,6 +3577,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "/api/ml/predict/status",
       "20261207000000",
       "20261208000000",
+      "20261209000000",
       "CalibratedClassifierCV",
       "ML_DECAY_ALERT_RATIO",
       "ML_DRIFT_ALERT_PSI",
@@ -3595,6 +3596,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ml.fairness.narrate",
       "ml.fairness.review",
       "ml.fairness.suggest",
+      "ml.inputs.missing",
       "ml.threshold.set",
       "predict",
       "predict_proba",
@@ -3611,6 +3613,11 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       {
         "id": "live-traffic",
         "text": "Live traffic",
+        "level": 3
+      },
+      {
+        "id": "missing-inputs",
+        "text": "Missing inputs",
         "level": 3
       },
       {

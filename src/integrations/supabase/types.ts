@@ -6175,6 +6175,8 @@ export type Database = {
           owner_row_count: number;
           owner_score: number | null;
           alerted_at: string | null;
+          missing: Json | null;
+          missing_alerted_at: string | null;
         };
         Insert: {
           version_id: string;
@@ -6189,6 +6191,8 @@ export type Database = {
           owner_row_count?: number;
           owner_score?: number | null;
           alerted_at?: string | null;
+          missing?: Json | null;
+          missing_alerted_at?: string | null;
         };
         Update: {
           version_id?: string;
@@ -6203,6 +6207,8 @@ export type Database = {
           owner_row_count?: number;
           owner_score?: number | null;
           alerted_at?: string | null;
+          missing?: Json | null;
+          missing_alerted_at?: string | null;
         };
         Relationships: [];
       };

@@ -2,7 +2,7 @@
 // serving (every endpoint that answers requests) and ML operations (what is
 // running, what failed, what is due). Worked out from plain rows, so every
 // sentence a page shows is held by a test.
-import { LIVE_TRAFFIC_ALERT } from "@/lib/mlHealth";
+import { LIVE_TRAFFIC_ALERT, MISSING_INPUTS_ALERT } from "@/lib/mlHealth";
 
 export type EndpointStatus = "starting" | "ready" | "failed" | "stopped";
 export type CandidateMode = "off" | "shadow" | "canary";
@@ -321,8 +321,12 @@ export function attentionItems(input: {
         what: "Production version needs a look",
         detail: a,
         at: null,
-        // Live traffic is read on the Predictions tab, beside the runs (R546).
-        tab: a.startsWith(LIVE_TRAFFIC_ALERT) ? "predictions" : "accuracy",
+        // Live traffic is read on the Predictions tab, beside the runs (R546),
+        // and so are inputs arriving empty (R549).
+        tab:
+          a.startsWith(LIVE_TRAFFIC_ALERT) || a.startsWith(MISSING_INPUTS_ALERT)
+            ? "predictions"
+            : "accuracy",
       });
     }
   }

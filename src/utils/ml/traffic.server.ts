@@ -15,6 +15,12 @@
 //   most per version, which notifies the owner and may start their workflows
 //   (R544). Recording needs migration 20261207000000; without it the sweep
 //   measures nothing and says so once.
+// - The same pass counts how often each feature arrived EMPTY against how
+//   often it was empty in training (R549), records it, and tells the owner
+//   once a day when a feature arrives empty far more often. That alert starts
+//   nothing: retraining does not mend a feed that stopped sending a field.
+//   Recording it needs migration 20261209000000; without it the drift check
+//   goes on as it was.
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import {
@@ -32,6 +38,13 @@ import {
   type TrafficDrift,
   type TrafficProfile,
 } from "@/lib/mlTraffic";
+import {
+  MISSING_MIN_ROWS,
+  missingFromProfile,
+  missingInputs,
+  missingLine,
+  type MissingInput,
+} from "@/lib/mlMissingInputs";
 import { startedSentence } from "@/lib/workflowAlerts";
 import { auditEvent } from "@/utils/audit.server";
 import { getPlatformResources } from "@/utils/notebookRuntime/config.server";
@@ -99,6 +112,11 @@ export type VersionTraffic = {
   /** The same, over the owner's own requests (theirs and their API keys'). */
   ownerRows: number;
   ownerDrift: TrafficDrift | null;
+  /**
+   * Features arriving empty markedly more often than in training (R549).
+   * Null below MISSING_MIN_ROWS rows; [] when none is.
+   */
+  missing: MissingInput[] | null;
   /** More requests than are read for one window: the newest were measured. */
   truncated: boolean;
 };
@@ -151,6 +169,10 @@ export async function liveTraffic(
       drift: measure(acc.all),
       ownerRows: acc.own?.rows ?? 0,
       ownerDrift: measure(acc.own),
+      missing:
+        stats && acc.all && acc.all.rows >= MISSING_MIN_ROWS
+          ? missingInputs(stats, missingFromProfile(stats, acc.all))
+          : null,
       truncated: reqs.length >= TRAFFIC_MAX_REQUESTS,
     });
   }
@@ -195,42 +217,80 @@ export async function runTrafficDriftChecks(
       continue;
     }
     for (const t of traffic) {
-      if (!t.drift) continue;
+      // A version every feature stopped reaching has no drift to measure,
+      // and is exactly the one to check (R549).
+      if (!t.drift && t.missing === null) continue;
       checked++;
-      const { error } = await supabaseAdmin.from("ml_traffic_checks").upsert(
-        {
-          version_id: t.versionId,
-          model_id: model.id,
-          user_id: model.user_id,
-          checked_at: now.toISOString(),
-          window_hours: TRAFFIC_WINDOW_HOURS,
-          requests: t.requests,
-          row_count: t.rows,
-          score: t.drift.score,
-          features: t.drift.features as unknown as Json,
-          owner_row_count: t.ownerRows,
-          owner_score: t.ownerDrift?.score ?? null,
-        },
-        { onConflict: "version_id" },
-      );
-      if (error) {
-        if (!missingTableSaid) {
-          missingTableSaid = true;
-          console.warn(
-            `[ml-traffic] not recorded: ${error.message} — live-traffic drift needs migration 20261207000000`,
-          );
-        }
-        return { checked, alerted };
-      }
+      const recorded = await recordCheck(model, t, now);
+      if (recorded === "no-table") return { checked, alerted };
       await recordDay(model, t, now);
-      if (t.drift.score < limits.mlDriftAlertPsi) continue;
-      if (await claimAlert(t.versionId, now)) {
-        alerted++;
-        await raiseTrafficAlert(model, { ...t, drift: t.drift }, limits.mlDriftAlertPsi, now);
+      if (t.drift && t.drift.score >= limits.mlDriftAlertPsi) {
+        if (await claimAlert(t.versionId, now, "alerted_at")) {
+          alerted++;
+          await raiseTrafficAlert(model, { ...t, drift: t.drift }, limits.mlDriftAlertPsi, now);
+        }
+      }
+      // Before migration 20261209000000 there is no claim column, so the claim
+      // would fail anyway: this saves its two doomed writes an hour.
+      if (recorded === "with-missing" && t.missing?.length) {
+        if (await claimAlert(t.versionId, now, "missing_alerted_at")) {
+          alerted++;
+          raiseMissingAlert(model, { ...t, missing: t.missing });
+        }
       }
     }
   }
   return { checked, alerted };
+}
+
+let missingColumnsSaid = false;
+
+/**
+ * The version's latest verdict. "with-missing" when the missing inputs were
+ * recorded too; "drift-only" before migration 20261209000000, when the row is
+ * written without them; "no-table" before 20261207000000.
+ */
+async function recordCheck(
+  model: { id: string; user_id: string },
+  t: VersionTraffic,
+  now: Date,
+): Promise<"with-missing" | "drift-only" | "no-table"> {
+  const row = {
+    version_id: t.versionId,
+    model_id: model.id,
+    user_id: model.user_id,
+    checked_at: now.toISOString(),
+    window_hours: TRAFFIC_WINDOW_HOURS,
+    requests: t.requests,
+    row_count: t.rows,
+    score: t.drift?.score ?? null,
+    features: (t.drift?.features ?? null) as unknown as Json,
+    owner_row_count: t.ownerRows,
+    owner_score: t.ownerDrift?.score ?? null,
+  };
+  const table = () => supabaseAdmin.from("ml_traffic_checks");
+  const full = await table().upsert(
+    { ...row, missing: t.missing as unknown as Json },
+    { onConflict: "version_id" },
+  );
+  if (!full.error) return "with-missing";
+  const plain = await table().upsert(row, { onConflict: "version_id" });
+  if (!plain.error) {
+    if (!missingColumnsSaid) {
+      missingColumnsSaid = true;
+      // PGRST204: a column the schema cache does not know, i.e. the migration.
+      const hint = full.error.code === "PGRST204" ? " — they need migration 20261209000000" : "";
+      console.warn(`[ml-traffic] missing inputs not recorded: ${full.error.message}${hint}`);
+    }
+    return "drift-only";
+  }
+  if (!missingTableSaid) {
+    missingTableSaid = true;
+    console.warn(
+      `[ml-traffic] not recorded: ${plain.error.message} — live-traffic drift needs migration 20261207000000`,
+    );
+  }
+  return "no-table";
 }
 
 let missingDailySaid = false;
@@ -274,17 +334,21 @@ async function recordDay(
  * running the hourly pass together raise it once. Two conditional updates,
  * each re-checked by Postgres under the row lock.
  */
-async function claimAlert(versionId: string, now: Date): Promise<boolean> {
+async function claimAlert(
+  versionId: string,
+  now: Date,
+  column: "alerted_at" | "missing_alerted_at",
+): Promise<boolean> {
   const stamp = now.toISOString();
   const claim = () =>
     supabaseAdmin
       .from("ml_traffic_checks")
-      .update({ alerted_at: stamp })
+      .update(column === "alerted_at" ? { alerted_at: stamp } : { missing_alerted_at: stamp })
       .eq("version_id", versionId);
-  const { data: first } = await claim().is("alerted_at", null).select("version_id").maybeSingle();
+  const { data: first } = await claim().is(column, null).select("version_id").maybeSingle();
   if (first) return true;
   const dayAgo = new Date(now.getTime() - 24 * 3_600_000).toISOString();
-  const { data: again } = await claim().lt("alerted_at", dayAgo).select("version_id").maybeSingle();
+  const { data: again } = await claim().lt(column, dayAgo).select("version_id").maybeSingle();
   return Boolean(again);
 }
 
@@ -330,6 +394,40 @@ async function raiseTrafficAlert(
     body:
       `The last ${TRAFFIC_WINDOW_HOURS} hours of requests (${t.rows.toLocaleString()} rows) differ from the training data (${topFeaturesLine(t.drift)}).` +
       (started.length ? startedSentence(started.map((s) => s.name)) : " Consider retraining."),
+    link: `/ml/${model.id}?tab=predictions`,
+  });
+}
+
+/**
+ * A feature arriving empty far more often than in training (R549). The owner
+ * is told and it is audited; no workflow starts, because the model is not
+ * what changed: what sends the requests is.
+ */
+function raiseMissingAlert(
+  model: { id: string; user_id: string; name: string },
+  t: VersionTraffic & { missing: MissingInput[] },
+): void {
+  auditEvent({
+    userId: model.user_id,
+    action: "ml.inputs.missing",
+    resourceType: "ml_model",
+    resourceId: model.id,
+    resourceName: model.name,
+    detail: {
+      source: "traffic",
+      version_id: t.versionId,
+      window_hours: TRAFFIC_WINDOW_HOURS,
+      requests: t.requests,
+      rows: t.rows,
+      features: t.missing,
+    },
+  });
+  const n = t.missing.length;
+  void notifyUser(model.user_id, {
+    title: `Inputs missing on "${model.name}" live traffic: ${n} feature${n === 1 ? "" : "s"}`,
+    body:
+      `In the last ${TRAFFIC_WINDOW_HOURS} hours of requests (${t.rows.toLocaleString()} rows), ${missingLine(t.missing)}. ` +
+      "Those rows were scored on a filled-in value. Retraining will not fix this: check what sends the requests.",
     link: `/ml/${model.id}?tab=predictions`,
   });
 }
