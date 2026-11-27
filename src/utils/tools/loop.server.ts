@@ -48,12 +48,14 @@ export const MAX_TOOL_RESULT_CHARS = 30_000;
  * calculator…) return the caller's own governed data and are not wrapped.
  */
 // find_my_work lists names, and a name shared with the reader was written by
-// someone else.
+// someone else; describe_my_thing (R552) returns descriptions and titles, the
+// same.
 export const UNTRUSTED_CONTENT_TOOLS = new Set([
   "web_search",
   "web_browse",
   "mcp_call_tool",
   "find_my_work",
+  "describe_my_thing",
 ]);
 
 /**

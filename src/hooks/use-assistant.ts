@@ -11,6 +11,7 @@ import {
   parseThread,
   serializeThread,
   threadKey,
+  type AssistantMention,
   type AssistantMessage,
   type AssistantToolUse,
 } from "@/lib/assistantThread";
@@ -141,10 +142,20 @@ export function useAssistant() {
 
   /** Ask one question, with the instructions for where the reader is now. */
   const ask = useCallback(
-    async (question: string, systemPrompt: string, where: string) => {
+    async (
+      question: string,
+      systemPrompt: string,
+      where: string,
+      mentions: readonly AssistantMention[] = [],
+    ) => {
       const text = question.trim();
       if (!text || busy) return;
-      const asked: AssistantMessage = { role: "user", content: text, where };
+      const asked: AssistantMessage = {
+        role: "user",
+        content: text,
+        where,
+        ...(mentions.length ? { mentions: [...mentions] } : {}),
+      };
       const history = [...messages, asked];
       setMessages([...history, { role: "assistant", content: "", tools: [] }]);
       setBusy(true);

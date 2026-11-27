@@ -469,6 +469,29 @@ function DashboardDoc() {
         sends you there: Ask AI in a workbook, the AI analyst tab on a dashboard, the Ask tab in an
         ontology, or the AI Analyst page.
       </P>
+      <H3 id="assistant-mentions">Asking about one of your things</H3>
+      <P>
+        Type <C>@</C> in the panel and a list of your things opens: models, datasets, dashboards,
+        workflows, agents and the rest, the same ones search finds. Pick one, and ask about it:{" "}
+        <em>is @Churn model healthy?</em>, <em>what does @Sales overview show?</em>. The assistant
+        reads it as you, so it sees only what you may open, and answers from a few plain facts:
+      </P>
+      <Table
+        headers={["Thing", "What it reads"]}
+        rows={[
+          ["Model", "its task and target, the version in production and its score, and its health"],
+          ["Dataset", "its columns and types, rows, and when its data was last loaded"],
+          ["Dashboard", "its pages and the titles of their visuals (never their queries or data)"],
+          ["Workflow", "its steps by name, its schedule and its last run"],
+          ["Agent", "its model and tools (never its instructions)"],
+          ["Swarm, pipeline", "its nodes, or where and when it runs (never its code or secrets)"],
+          ["Anything else", "its name and description, and a link to open it"],
+        ]}
+      />
+      <P>
+        The thing open on your page is read the same way when you ask about it. A name or a
+        description someone else wrote is read as theirs, never as an instruction to the assistant.
+      </P>
       <Table
         headers={["In the panel", "What it does"]}
         rows={[
@@ -479,7 +502,8 @@ function DashboardDoc() {
           ["A link to the handbook", "Opens in a new tab, so the conversation stays in view."],
           ["New conversation", "Starts again with nothing asked."],
           ["Stop", "Ends the answer being written; what it said so far stays."],
-          ["Esc", "Closes the panel when you are typing in it."],
+          ["@", "Lists your things to ask about; ↑ ↓ to move, Enter or Tab to choose."],
+          ["Esc", "Closes the @ list if it is open, otherwise the panel."],
         ]}
       />
       <P>

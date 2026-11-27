@@ -48,7 +48,9 @@ describe("frameUntrustedResult — which tools get wrapped", () => {
     // makes that a deliberate decision rather than an omission. find_my_work
     // (R518) reaches nothing outside, but lists names, and a name shared with
     // the reader was typed by someone else.
+    // describe_my_thing (R552) returns descriptions and titles, the same.
     expect([...UNTRUSTED_CONTENT_TOOLS].sort()).toEqual([
+      "describe_my_thing",
       "find_my_work",
       "mcp_call_tool",
       "web_browse",

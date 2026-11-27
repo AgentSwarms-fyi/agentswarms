@@ -109,6 +109,22 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-27 — R552: the assistant could find your things, never say anything about them
+
+**Why this round.** The assistant's second half since R518: it linked a thing by name and stopped there, so "is my churn model healthy?" had no answer short of opening it. Read as the person asking, and as someone whose things are shared with them.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| No way to ask about a thing | S3 | **Found by the round's question.** `@` in the panel lists the reader's things (the index search reads); `describe_my_thing` reads one as the reader into plain facts per kind. |
+| Reading a thing could have read its secrets | S2 | **Found in design.** A thing's row holds credentials, an agent's instructions, a pipeline's code and secrets, a dashboard's queries. Each kind reads a named list of columns, and a test refuses one that names any of those (mutation-checked: adding system_prompt to the agent's list fails it). |
+| Someone else's words reaching the model as instructions | S3 | **Found in design.** A shared thing's name and description were written by someone else: the tool is in the untrusted set, so its output is framed as data. |
+| A multi-word name could not be typed after @ | S4 | **Found in the UI test.** The list closed at the first space. A name may have spaces while something matches; a chosen thing is not reopened while the question is typed after it. |
+
+**Checked and sound.**
+- **Only the signed-in reader**: registered only when the assistant asks for it, with the reader's token, never on a headless run, where the client is the service role (tested, mutation-checked).
+- **Row-level security decides**: a thing the reader cannot open is "not open to this user", and the model is told not to guess (tested).
+- **The figures are the model page's**: driven with the default model, every number in the answer matched.
+
 ### 2026-11-27 — R551: a model answering online was never measured against what happened
 
 **Why this round.** Drift and missing inputs warn that the rows look different; only the real answer says the model is wrong. A batch run is measured by joining its scored table to an outcome table, but a prediction asked for through the API leaves no table, so online serving had no accuracy at all. Read as the owner of a model behind an API, and as someone the model is shared with.

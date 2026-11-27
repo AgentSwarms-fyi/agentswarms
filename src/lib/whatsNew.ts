@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "assistant-mentions",
+    date: "2026-11-27",
+    title: "Ask the assistant about your things",
+    body: "Type @ in the assistant to pick one of your models, datasets, dashboards or workflows, and ask about it: it reads it as you and answers from its facts.",
+    link: { to: "/docs/dashboard" },
+    cta: "How it works",
+  },
+  {
     id: "online-outcomes",
     date: "2026-11-27",
     title: "Was it right, for online predictions",

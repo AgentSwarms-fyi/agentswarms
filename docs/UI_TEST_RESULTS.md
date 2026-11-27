@@ -15,6 +15,17 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-27 — R552: asking the assistant about one of your things
+
+Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab, on the ML Models page, with the workspace's default model.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Assistant (Ctrl/⌘ J) | the empty panel | "Type @ to ask about one of your things by name"; the box reads "Ask about this page, or @ one of your things…" |
+| Same | typed `how is @revenue_facts pl` | no list: it closed at the first space, so a name of more than one word could not be typed (fixed: a name may have spaces while something still matches; an @ followed by words that match nothing, "meet @ noon", gets no list; an @ that starts a thing already chosen is not reopened) |
+| Same | typed `how is @revenue` | the list: revenue (Metric), Revenue (Semantic model), revenue_facts · groups, revenue_facts plan classifier, revenue_facts net_usd forecast (ML model), Revenue Command Center · Sample (Dashboard), each with its kind's icon |
+| Same | ↓ ↓ ↓, Enter, then `healthy, and what does it predict?`, Enter | the box read "how is @revenue_facts plan classifier healthy, and what does it predict?"; the answer showed **Read it** and **Read the handbook**, and said: a classification predicting plan from analytics.revenue_facts with six chosen features, version 7 in production on logistic regression, f1_macro 0.63 against 1.00 at training (37% worse, measured 2026-11-27), and one feature arriving empty — every figure as the model page shows it |
+
 ## 2026-11-27 — R551: outcomes for online predictions
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab, before migration 20261211000000 was applied. The API itself was not driven: reporting needs an ML API key, and making one is the user's to approve; it is covered by tests over an in-memory database.

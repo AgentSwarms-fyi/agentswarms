@@ -1,7 +1,8 @@
 // The assistant, beside every page. It knows the page the reader is on and
 // the thing open on it, answers how-to questions from the handbook, finds the
-// reader's own things by name, and links both. It reads and explains; it
-// changes nothing.
+// reader's own things by name, and links both. Since R552 any of the reader's
+// things can be mentioned with @, and the assistant reads it (as the reader)
+// to answer about it. It reads and explains; it changes nothing.
 import { useRouter, useRouterState } from "@tanstack/react-router";
 import { ArrowUp, Loader2, MessageSquareText, Square, SquarePen, X } from "lucide-react";
 import {
@@ -25,13 +26,21 @@ import { assistantPlacement, type AssistantPlacement } from "@/lib/assistantPlac
 import { assistantSystemPrompt, starterQuestions } from "@/lib/assistantPrompt";
 import {
   appPath,
+  insertMention,
+  liveMentions,
   localHandbookLinks,
+  mentionAt,
+  showMentionList,
+  MENTIONS_MAX,
   toolLabel,
+  type AssistantMention,
   type AssistantMessage,
   type AssistantToolUse,
 } from "@/lib/assistantThread";
-import { objectKind } from "@/lib/objectKinds";
+import { objectKind, type ObjectEntry } from "@/lib/objectKinds";
+import { rankObjects } from "@/lib/objectSearch";
 import { cn } from "@/lib/utils";
+import { useObjectIndex } from "@/hooks/use-object-index";
 import { objectsByIds } from "@/utils/objectSearch.functions";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -109,6 +118,18 @@ function ToolLines({ tools }: { tools: AssistantMessage["tools"] }) {
   );
 }
 
+/** How many things the @ list offers at once. */
+const PICK_MAX = 6;
+
+/** What the @ list shows for what has been typed after the @. */
+function pickFrom(entries: readonly ObjectEntry[], query: string): ObjectEntry[] {
+  if (query.trim()) return rankObjects(entries, query, { limit: PICK_MAX });
+  // Nothing typed yet: the most recently changed.
+  return [...entries]
+    .sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")))
+    .slice(0, PICK_MAX);
+}
+
 function PanelBody({
   state,
   page,
@@ -122,6 +143,18 @@ function PanelBody({
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState("");
+  // R552: things mentioned with @ in the draft, and the open @ list.
+  const [mentions, setMentions] = useState<AssistantMention[]>([]);
+  const [picking, setPicking] = useState<{ start: number; query: string } | null>(null);
+  const [active, setActive] = useState(0);
+  // The same index search reads (one copy, kept a minute), read the first
+  // time an @ is typed: exactly the things the reader may open.
+  const [wantIndex, setWantIndex] = useState(false);
+  const index = useObjectIndex(wantIndex);
+  const choices = useMemo(
+    () => (picking && !index.loading ? pickFrom(index.entries, picking.query) : []),
+    [picking, index.loading, index.entries],
+  );
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const where = whereLabel(page, objectName);
@@ -142,11 +175,41 @@ function PanelBody({
       const q = text.trim();
       if (!q || busy) return;
       setDraft("");
+      setPicking(null);
+      const used = liveMentions(q, mentions);
+      setMentions([]);
       const prompt = assistantSystemPrompt(page, { heading: visibleHeading(), objectName });
-      void ask(q, prompt, where);
+      void ask(q, prompt, where, used);
     },
-    [ask, busy, page, objectName, where],
+    [ask, busy, page, objectName, where, mentions],
   );
+
+  /** The draft changed: is an @word being typed? */
+  const onDraft = (value: string, caret: number) => {
+    setDraft(value);
+    const at = mentionAt(value, caret, mentions);
+    setPicking(at);
+    setActive(0);
+    if (at) setWantIndex(true);
+  };
+
+  const pick = (e: ObjectEntry) => {
+    if (!picking) return;
+    const next = insertMention(draft, picking, e.name);
+    setDraft(next.text);
+    setPicking(null);
+    setMentions((was) =>
+      was.some((m) => m.kind === e.kind && m.id === e.id) || was.length >= MENTIONS_MAX
+        ? was
+        : [...was, { kind: e.kind, id: e.id, name: e.name }],
+    );
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(next.caret, next.caret);
+    });
+  };
 
   // A question asked from the search box: asked here, where the page is
   // known. Once per id, even when an effect runs twice.
@@ -159,6 +222,26 @@ function PanelBody({
   }, [pending, busy, clearPending, send]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // The @ list has the keys while it is open: Esc closes the list, not the panel.
+    if (picking && choices.length) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        setActive((a) => (a + step + choices.length) % choices.length);
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        pick(choices[Math.min(active, choices.length - 1)]);
+        return;
+      }
+    }
+    if (picking && showMentionList(picking.query, choices.length) && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      setPicking(null);
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       send(draft);
@@ -224,9 +307,9 @@ function PanelBody({
         {state.messages.length === 0 ? (
           <div className="space-y-4">
             <p className="text-sm leading-6 text-muted-foreground">
-              Ask what this page is for, how to do something, or where one of your things is.
-              Answers come from the handbook and your own work; the assistant does not change
-              anything.
+              Ask what this page is for, how to do something, or where one of your things is. Type @
+              to ask about one of your things by name. Answers come from the handbook and your own
+              work; the assistant does not change anything.
             </p>
             <div className="flex flex-col items-start gap-2">
               {starters.map((q) => (
@@ -271,15 +354,67 @@ function PanelBody({
         )}
       </div>
 
-      <div className="shrink-0 border-t p-3">
+      <div className="relative shrink-0 border-t p-3">
+        {picking && (index.loading || showMentionList(picking.query, choices.length)) ? (
+          <div
+            className="absolute inset-x-3 bottom-full mb-1 overflow-hidden rounded-lg border bg-popover shadow-md"
+            data-testid="assistant-mention-list"
+          >
+            {index.loading ? (
+              <p className="flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> Reading your work…
+              </p>
+            ) : choices.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-muted-foreground">
+                {picking.query
+                  ? `Nothing of yours is named like “${picking.query}”.`
+                  : "Type a name."}
+              </p>
+            ) : (
+              <ul role="listbox" aria-label="Your things" className="py-1">
+                {choices.map((c, i) => {
+                  const k = objectKind(c.kind);
+                  const Icon = k.icon;
+                  return (
+                    <li key={`${c.kind}:${c.id}`} role="option" aria-selected={i === active}>
+                      <button
+                        type="button"
+                        // Pressed before the textarea loses focus, so the caret stays.
+                        onMouseDown={(ev) => {
+                          ev.preventDefault();
+                          pick(c);
+                        }}
+                        onMouseEnter={() => setActive(i)}
+                        className={cn(
+                          "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
+                          i === active ? "bg-muted" : "hover:bg-muted/60",
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {k.label}
+                          {c.mine ? "" : " · shared"}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        ) : null}
         <div className="flex items-end gap-2 rounded-lg border bg-background px-2 py-1.5 focus-within:border-foreground/25">
           <textarea
             ref={inputRef}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) =>
+              onDraft(e.target.value, e.target.selectionStart ?? e.target.value.length)
+            }
             onKeyDown={onKeyDown}
+            onBlur={() => setPicking(null)}
             rows={1}
-            placeholder="Ask about this page…"
+            placeholder="Ask about this page, or @ one of your things…"
             aria-label="Ask the assistant"
             className="max-h-40 min-h-[2rem] flex-1 resize-none bg-transparent py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground [field-sizing:content]"
           />

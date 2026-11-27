@@ -1676,6 +1676,8 @@ export const TOOLABLE_IDS = [
   // Registered only when a request names them (see resolveAgentTools).
   "docs_search",
   "find_my_work",
+  // And one of those things read for its facts (R552), with the same rule.
+  "describe_my_thing",
 ] as const;
 export type ToolableId = (typeof TOOLABLE_IDS)[number];
 
@@ -1955,6 +1957,12 @@ export async function resolveAgentTools(
   if (allow?.includes("find_my_work") && ctx.authToken && !ctx.scopeUserId) {
     tools.push(findMyWorkTool);
     handlers.set("find_my_work", runFindMyWork);
+  }
+  if (allow?.includes("describe_my_thing") && ctx.authToken && !ctx.scopeUserId) {
+    const { describeMyThingTool, runDescribeMyThing } =
+      await import("@/utils/assistant/describe.server");
+    tools.push(describeMyThingTool);
+    handlers.set("describe_my_thing", runDescribeMyThing);
   }
   if (allows("weather")) {
     tools.push(weatherTool);

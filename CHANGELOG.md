@@ -344,6 +344,16 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Ask the assistant about one of your things** (R552). Type `@` in the
+  assistant panel to mention a model, dataset, dashboard, workflow, agent or
+  anything else search finds, and it reads that thing as you (row-level
+  security decides) to answer about it: a model's production version and
+  health, a dataset's columns and rows, a dashboard's pages and visual
+  titles, a workflow's steps and last run. It reads a named list of columns
+  per kind, never a credential, an agent's instructions, a pipeline's code
+  or a dashboard's data, and what it reads is framed as data, not
+  instructions. The thing open on the page is read the same way. No
+  migration.
 - **Outcomes for online predictions** (R551). A prediction asked for through
   the API left no table to join, so a model answering online could never be
   measured against what really happened. `POST /api/ml/outcomes` reports the

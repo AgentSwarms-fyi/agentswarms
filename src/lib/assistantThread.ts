@@ -5,6 +5,12 @@
 // person on the same browser never sees the first one's questions, and
 // closing the tab forgets it. Nothing here is written to the database.
 
+/** One of the reader's things, mentioned with @ in a question (R552). */
+export type AssistantMention = { kind: string; id: string; name: string };
+
+/** At most this many things are mentioned in one question. */
+export const MENTIONS_MAX = 5;
+
 export type AssistantToolUse = {
   name: string;
   status: "running" | "ok" | "error" | "none";
@@ -19,6 +25,8 @@ export type AssistantMessage = {
   error?: boolean;
   /** Where the reader was when they asked, for the line under a question. */
   where?: string;
+  /** The things a question mentioned with @, which the model is told about (R552). */
+  mentions?: AssistantMention[];
 };
 
 /** How many messages a thread keeps; older ones fall off the top. */
@@ -52,6 +60,7 @@ export function parseThread(raw: string | null | undefined): AssistantMessage[] 
         ...(Array.isArray(m.tools) ? { tools: m.tools } : {}),
         ...(m.error ? { error: true } : {}),
         ...(typeof m.where === "string" ? { where: m.where } : {}),
+        ...(cleanMentions(m.mentions).length ? { mentions: cleanMentions(m.mentions) } : {}),
       }))
       .slice(-THREAD_MAX);
   } catch {
@@ -77,7 +86,15 @@ export function messagesToSend(
 ): Array<{ role: "user" | "assistant"; content: string }> {
   const usable = messages
     .filter((m) => !m.error && m.content.trim())
-    .map((m) => ({ role: m.role, content: m.content }));
+    .map((m) => ({
+      role: m.role,
+      // A question's mentions travel with it, so a follow-up still knows
+      // which thing "it" was.
+      content:
+        m.role === "user" && m.mentions?.length
+          ? `${m.content}${mentionNote(m.mentions)}`
+          : m.content,
+    }));
   const out: Array<{ role: "user" | "assistant"; content: string }> = [];
   let chars = 0;
   for (let i = usable.length - 1; i >= 0 && out.length < maxMessages; i--) {
@@ -100,6 +117,8 @@ export function toolLabel(t: AssistantToolUse): string {
       return running ? "Reading the handbook…" : "Read the handbook";
     case "find_my_work":
       return running ? "Looking through your work…" : "Looked through your work";
+    case "describe_my_thing":
+      return running ? "Reading it…" : "Read it";
     default:
       return running ? "Working…" : "Looked something up";
   }
@@ -155,4 +174,93 @@ export function localHandbookLinks(markdown: string): string {
           `](/docs${!path || path === "/" ? "" : path.startsWith("/docs") ? path.slice(5) : path})`,
       )
   );
+}
+
+// ── Mentions (R552) ─────────────────────────────────────────────────────
+
+/** Mentions as stored, kept only when they are the shape they should be. */
+export function cleanMentions(raw: unknown): AssistantMention[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AssistantMention[] = [];
+  const seen = new Set<string>();
+  for (const m of raw as Partial<AssistantMention>[]) {
+    if (
+      !m ||
+      typeof m.kind !== "string" ||
+      typeof m.id !== "string" ||
+      typeof m.name !== "string"
+    ) {
+      continue;
+    }
+    const key = `${m.kind}:${m.id}`;
+    if (seen.has(key) || !m.id) continue;
+    seen.add(key);
+    out.push({ kind: m.kind.slice(0, 40), id: m.id.slice(0, 400), name: m.name.slice(0, 120) });
+    if (out.length >= MENTIONS_MAX) break;
+  }
+  return out;
+}
+
+/**
+ * What the model reads after a question that mentioned things: which thing
+ * each @name is, by kind and id, so it can read it (describe_my_thing). The
+ * name is the reader's text, fenced like every other name in the prompt.
+ */
+export function mentionNote(mentions: readonly AssistantMention[]): string {
+  if (!mentions.length) return "";
+  const lines = mentions.map(
+    (m) => `- @<<<${m.name.replace(/[<>]/g, "")}>>> is kind ${m.kind}, id ${m.id}`,
+  );
+  return `\n\n(Mentioned:\n${lines.join("\n")})`;
+}
+
+/**
+ * The @name being typed just before the caret, or null. A name may have
+ * spaces in it ("@revenue facts pl"): FOUND IN THE UI TEST, the list closed
+ * at the first space, so a name of more than one word could not be typed. An
+ * @ that starts a thing already chosen is not being typed: what follows it is
+ * the question.
+ */
+export function mentionAt(
+  text: string,
+  caret: number,
+  chosen: readonly AssistantMention[] = [],
+): { start: number; query: string } | null {
+  const before = text.slice(0, Math.max(0, caret));
+  const m = /(^|\s)@([^\n@]{0,60})$/.exec(before);
+  if (!m) return null;
+  const start = before.length - m[2].length - 1;
+  if (chosen.some((c) => text.startsWith(`@${c.name}`, start))) return null;
+  return { start, query: m[2] };
+}
+
+/**
+ * Whether the @ list is shown: while a typed name of one word has no match it
+ * says so, but once a space is typed and nothing matches, the @ was not a
+ * name ("meet @ noon") and the list gets out of the way.
+ */
+export function showMentionList(query: string, matches: number): boolean {
+  return matches > 0 || !/\s/.test(query);
+}
+
+/** The draft with the @word replaced by the chosen thing's @name, and where the caret goes. */
+export function insertMention(
+  text: string,
+  at: { start: number; query: string },
+  name: string,
+): { text: string; caret: number } {
+  const label = `@${name} `;
+  const end = at.start + 1 + at.query.length;
+  return {
+    text: text.slice(0, at.start) + label + text.slice(end),
+    caret: at.start + label.length,
+  };
+}
+
+/** The mentions whose @name is still in the question, once each. */
+export function liveMentions(
+  text: string,
+  mentions: readonly AssistantMention[],
+): AssistantMention[] {
+  return cleanMentions(mentions.filter((m) => text.includes(`@${m.name}`)));
 }
