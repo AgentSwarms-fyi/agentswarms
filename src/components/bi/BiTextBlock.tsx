@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 
 import { hardBreaks } from "@/components/bi/biDrawHelpers";
 import { hexColor, TEXT_BASE_PX, TEXT_HEADING_SCALE, type BiTextStyle } from "@/lib/biDashboards";
+import { lastListNumber, numberedListIndent } from "@/lib/listIndent";
 import { safeUrl } from "@/lib/safeUrl";
 import { cn } from "@/lib/utils";
 
@@ -47,7 +48,21 @@ export function BiTextBlock({ text, style }: { text: string; style: BiTextStyle 
           p: ({ children }) => <p className="my-0.5 leading-snug">{children}</p>,
           strong: ({ children }) => <strong className="font-extrabold">{children}</strong>,
           ul: ({ children }) => <ul className="my-1 ml-5 list-disc space-y-0.5">{children}</ul>,
-          ol: ({ children }) => <ol className="my-1 ml-5 list-decimal space-y-0.5">{children}</ol>,
+          // `start` is passed on, as in MarkdownMessage: dropping it renumbered
+          // every list from 1, so "3. … 4. …" read "1. … 2. …". The indent
+          // makes room for a number of two digits or more, as there.
+          ol: ({ children, start }) => {
+            const indent = numberedListIndent(lastListNumber(start, children));
+            return (
+              <ol
+                start={start}
+                className="my-1 ml-5 list-decimal space-y-0.5"
+                style={indent ? { marginLeft: indent } : undefined}
+              >
+                {children}
+              </ol>
+            );
+          },
           a: ({ children, href }) => (
             <a
               href={href}
