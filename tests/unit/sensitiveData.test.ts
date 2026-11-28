@@ -146,9 +146,12 @@ describe("a column, from its values and its name", () => {
   });
 
   it("says when the rows read have nothing in a column it flags by name", () => {
-    expect(classifyColumn("EmailBouncedDate", Array(20).fill(null))?.evidence).toBe(
+    expect(classifyColumn("BackupEmail", Array(20).fill(null))?.evidence).toBe(
       "Its name suggests email addresses; none of the 20 rows read has a value in it.",
     );
+    // Until R558 this column was the example; it holds the date an email
+    // bounced, and its name now says so.
+    expect(classifyColumn("EmailBouncedDate", Array(20).fill(null))).toBeNull();
   });
 
   it("says when a few values do not bear a name out", () => {

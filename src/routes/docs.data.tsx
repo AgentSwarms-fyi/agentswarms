@@ -1006,11 +1006,21 @@ function DataPage() {
         their checksum), ID numbers, bank account numbers (IBAN, with its checksum), IP addresses
         and keys or tokens. A column named <C>contact</C> full of email addresses is found, and one
         named <C>email_campaign_id</C> full of numbers is not. Where values have no shape to check
-        (people&apos;s names, postal addresses, dates of birth, pay, gender), the column&apos;s name
-        decides. A text column that only mentions an email address, a card number, an ID or a key
-        now and then is found too. Each finding says what it rests on: &quot;48 of 50 values are
-        email addresses&quot;, or &quot;Its name suggests people&apos;s names&quot;. The patterns
-        are the ones the guardrails redact from chat with.
+        (people&apos;s names, postal addresses, dates and places of birth, pay, gender, passwords
+        and their hashes), the column&apos;s name decides. A text column that only mentions an email
+        address, a card number, an ID or a key now and then is found too. Each finding says what it
+        rests on: &quot;48 of 50 values are email addresses&quot;, or &quot;Its name suggests
+        people&apos;s names&quot;. The patterns are the ones the guardrails redact from chat with.
+      </P>
+      <P>
+        A name&apos;s last word says what the column holds. A column named for something personal
+        but ending in a key, a time or a description of it holds none of it: <C>address_id</C>,{" "}
+        <C>email_confirmed_at</C>, <C>phone_type</C> and <C>is_email_verified</C> are not marked.
+        Some keys are the data, and stay marked: a date key such as <C>birth_date_sk</C>, a key to a
+        gender or a country of birth, and <C>email_id</C>, which in common usage is the address
+        itself (ten values without an @ overrule it). A column whose values are all true or false
+        holds no name, address or password, whatever it is called. The name check is held to the
+        columns of public sample schemas, every column of each table.
       </P>
       <P>
         For the owner, each personal column also says how many of the dataset&apos;s grants can read

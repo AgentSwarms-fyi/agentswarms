@@ -15,9 +15,21 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-28 — R558: what a column's name can say
+
+Driven on the 8080 stack rebuilt from the R558 working tree, signed in as the owner, on the dataset pages of three tables already on the stack: `tpcds_sf10tcl_customer` and `tpcds_sf100tcl_call_center` (TPC-DS benchmark data, synthetic) and `sftest_users` (8 rows synced from a test CRM connection). Read from the page's Overview; column names and JSON types only were read from the database. Fixture: one quality check added to `tpcds_sf100tcl_call_center`; deleted with the owner's permission after the round (no checks or results left on it).
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Dataset page, Overview | `tpcds_sf10tcl_customer`, Personal data | C_BIRTH_COUNTRY "places of birth" (was "dates of birth" in R557's test); C_BIRTH_DAY, C_BIRTH_MONTH, C_BIRTH_YEAR still "dates of birth"; C_EMAIL_ADDRESS "487 of 487 values are email addresses" |
+| Same | `tpcds_sf100tcl_call_center`, Personal data | CC_STREET_NUMBER, CC_STREET_NAME and now CC_ZIP listed as postal addresses; CC_STREET_TYPE no longer listed |
+| Checks and versions | Add check: Accepted values, the column CC_STREET_TYPE (picked with the keyboard, highlight checked before Enter), allowed `Ave`; Run | "60 rows have an unexpected "CC_STREET_TYPE" — e.g. "Boulevard", "Way", "RD"." On R557's build the same finding read "No examples are shown: the column holds postal addresses." |
+| Dataset page, Overview | `sftest_users`, Personal data, on the first R558 build | Fax listed as phone numbers; LastPasswordChangeDate and PasswordExpirationDate not listed (a time about a password is not one). But some 40 preference flags were listed (`UserPreferencesShowFaxToExternalUsers` as phone numbers, `EmailPreferencesAutoBcc` as email addresses): their 8 values are JSON booleans (checked in the database, types only), and the rule that a column of true and false holds none of this waited for 10 values. Filed below and fixed in the same round |
+| Same | `sftest_users`, Personal data, on the rebuilt stack with the fix (3 values of true and false are enough) | 11 columns listed, every one personal: Username and Email ("5 of 8 values are email addresses"), FirstName, LastName, Street, PostalCode, SenderEmail, Phone, Fax, MobilePhone; EmailEncodingKey still listed, "though none of its 8 values is one" (its values are text, not flags). No preference flag listed |
+
 ## 2026-11-28 — R557: quality findings quote no personal values
 
-Driven on the 8080 stack rebuilt from the R557 working tree, signed in as the owner, on the dataset page of `tpcds_sf10tcl_customer` (TPC-DS benchmark data: its addresses are synthetic). Fixtures: two quality checks added to that dataset for the test, kept until the owner says to delete them.
+Driven on the 8080 stack rebuilt from the R557 working tree, signed in as the owner, on the dataset page of `tpcds_sf10tcl_customer` (TPC-DS benchmark data: its addresses are synthetic). Fixtures: two quality checks added to that dataset for the test; deleted with the owner's permission after the round (no checks or results left on it).
 
 | Surface | What was driven | Result |
 | --- | --- | --- |

@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "password-columns-by-name",
+    date: "2026-11-28",
+    title: "Password columns found",
+    body: "Columns of passwords, password hashes and tokens are now marked as sensitive, and columns that only point at personal data, such as address_id or phone_type, are no longer marked.",
+    link: { to: "/docs/data" },
+    cta: "How it works",
+  },
+  {
     id: "catalog-hides-personal-values",
     date: "2026-11-28",
     title: "No personal values in the catalog",

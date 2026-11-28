@@ -60,7 +60,9 @@ export const SENSITIVE_LABEL: Record<SensitiveKind, string> = {
   card: "payment card numbers",
   bank_account: "bank account numbers",
   national_id: "ID numbers",
+  password: "passwords or password hashes",
   phone: "phone numbers",
+  birth_place: "places of birth",
   birth_date: "dates of birth",
   person_name: "people's names",
   address: "postal addresses",
@@ -141,6 +143,13 @@ const MAX_IDENTIFIER = 120;
 const MAX_SCANNED = 4000;
 /** Fewer values than this, and values that never match do not overrule a name. */
 const OVERRULE_AFTER = 10;
+/**
+ * Values that are all true or false overrule a name sooner: a value that does
+ * not show an email's shape may be a typo, but "true" is never a phone number.
+ * FOUND IN R558's UI TEST: a synced users table of 8 rows listed some 40
+ * preference flags (`UserPreferencesShowFaxToExternalUsers`) as personal.
+ */
+const FLAGS_OVERRULE_AFTER = 3;
 
 /** IBAN's own check (ISO 13616): the rearranged number, mod 97, is 1. */
 export function ibanValid(raw: string): boolean {
@@ -234,11 +243,15 @@ export function classifyColumn(
 
   // A name whose kind always shows in its values, and enough values that
   // never show it: the name was wrong (`email_campaign_id` holds numbers).
+  // And whatever the kind, values that are all true or false: a flag holds no
+  // address, name or password (`phone_opt_in`), only gender can be stored that
+  // way (R558; R521 found `IsEmailBounced` this way for email).
+  const onlyFlags =
+    sampled >= FLAGS_OVERRULE_AFTER && texts.every((t) => /^(true|false)$/i.test(t));
   const overruled =
     named !== null &&
-    SHAPE_ALWAYS.has(named) &&
-    sampled >= OVERRULE_AFTER &&
-    (whole.get(named) ?? 0) === 0;
+    ((SHAPE_ALWAYS.has(named) && sampled >= OVERRULE_AFTER && (whole.get(named) ?? 0) === 0) ||
+      (onlyFlags && named !== "gender"));
   if (named && !overruled) {
     // The name alone, and what the values could not settle, said plainly so
     // the owner can judge: a column with nothing in it, or a few values none

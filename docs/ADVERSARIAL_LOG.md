@@ -109,6 +109,24 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-28 — R558: a column's name said what it pointed at, not what it held
+
+**Why this round.** R557's UI test filed `C_BIRTH_COUNTRY` as "dates of birth". Since R554–R557 a mark of personal data has consequences: the column is put to its owner as one to hide from shares, the catalog keeps no sample of it, and its failing quality checks quote no examples. So the name check, which decides wherever values have no shape, was held to the columns of public schemas: every column of 24 tables from sample databases and two common sign-in schemas, 253 columns (`piiNameCorpus.test.ts`). Before: 35 wrong.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Password and token columns were never found | S2 | **Found by the corpus.** `password`, `PasswordHash`, `PasswordSalt`, `encrypted_password`, `recovery_token`: a hash has no shape a value check can see, and no name matched. So a crawled users table kept one password hash as the column's catalog sample (readable by catalog grantees), a quality finding on it could quote hashes, and a share sweep never asked about it. Found by name now, before any other kind, so a token sent to confirm an email change is a key, not an address. |
+| Keys, times and descriptions were taken for personal data | S3 | **Found by the corpus.** 16 of 253: `address_id` in four tables, `CreditCardID`, `PhoneNumberTypeID`, `email_confirmed_at`, `ca_street_type`. Each was put to its owner to hide, and since R557 an accepted-values check on such a column (`phone_type`, `street_type`) showed no examples. A name's last word now decides: a key, a time or a description after the term means the column is about it. Keys that encode the data stay marked (`birth_date_sk`, `gender_id`), and so does `email_id` (in common usage, the address). |
+| Flags listed as personal data | S3 | **Found in the UI test.** A synced users table of 8 rows listed some 40 preference flags (`UserPreferencesShowFaxToExternalUsers`) as phone numbers and email addresses: their values are booleans, and the new rule that a column of true and false holds none of this waited for 10 values, the number borrowed from the email-shape rule. "true" is never a phone number; 3 values are enough now. Gender is the exception. |
+| A place of birth was a date of birth | S4 | **Found in R557's UI test.** `c_birth_country` matched "birth". Places of birth are their own kind. |
+| Names missed | S4 | **Found by the corpus.** `Fax`, `MiddleName`, `ContactName`, `ca_zip`, `address2` (a number ended the word). Also added on review: PIN codes, Aadhaar, PAN and national insurance numbers. |
+
+**Checked and sound.**
+- **253 of 253** on the corpus after; the names the old tests held still hold (`email_campaign_id` stays flagged by name; ten values without an @ overrule it).
+- **Over-inclusive where values settle it**: `EmailPromotion` and `EmailAddressID` stay "email" by name and are overruled by their values; `CC_ZIP` (a call centre's address) is marked like its street.
+- **Nothing stored changes until a crawl**: columns already in the catalog keep their verdicts until the next crawl judges them again; dataset pages judge on every view.
+- 20 mutants killed (each kind's terms, the order, the last-word rule and each kind's exceptions, the flag prefix, numbered terms, both overrule thresholds, the labels). One survives and is equivalent today, kept on purpose: the guard "the term does not end the name" never decides while no term ends in a word its own kind treats as a key, time or description (`tax_id` is national_id, which ignores key words).
+
 ### 2026-11-28 — R557: a failing check posted addresses to a team channel
 
 **Why this round.** After R556, a sweep for other places that copy values out of the data and show them to more people than its owner. Every caller of `notifyUser` was read: data monitors quote counts and column names only; the semantic layer's "e.g." strings are SQL hints. Data-quality findings were the one that quoted rows.

@@ -351,6 +351,25 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Password columns found by name, and names that only point at personal
+  data left alone** (R558). Held to every column of 24 tables from public
+  sample databases and two common sign-in schemas (253 columns), the name
+  check got 35 wrong. It never found a
+  password or token column (`password`, `PasswordHash`,
+  `encrypted_password`, `recovery_token`), so the catalog kept one hash as
+  the column's sample and a quality finding could quote them. It marked
+  columns that only point at, time or describe personal data (`address_id`,
+  `CreditCardID`, `email_confirmed_at`, `phone_type`), which put them to
+  owners as columns to hide from shares and, since R557, stopped an
+  accepted-values check on `phone_type` showing its examples. And it called
+  `c_birth_country` "dates of birth". Now passwords and keys are found by
+  name, a name whose last word is a key, a time or a description is not
+  taken for the data (keys that encode it, such as `birth_date_sk` or
+  `gender_id`, still are), places of birth are their own kind, and a column
+  of only true and false values holds none of it, gender aside. Also found:
+  `Fax`, `MiddleName`, `ContactName`, `zip`, numbered columns (`address2`),
+  PIN codes, Aadhaar, PAN and national insurance numbers. Columns already in
+  the catalog are judged again on their next crawl.
 - **Quality findings quote no personal values** (R557). A failing `unique`,
   `accepted_values` or `range` check quoted up to three of the values it
   found ("e.g. "ann@…" ×2"), and the alert sent when a dataset's verdict
