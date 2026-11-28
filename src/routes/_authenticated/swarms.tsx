@@ -148,6 +148,7 @@ import { StarButton } from "@/components/StarButton";
 import { useRecordOpened } from "@/hooks/use-object-marks";
 import { moveToTrash } from "@/hooks/use-trash";
 import { RESTORE_HINT } from "@/lib/trash";
+import { EDGE_LABEL_MAX_LENGTH, edgeLabelLength, edgeLabelProblem } from "@/lib/edgeLabel";
 
 export const Route = createFileRoute("/_authenticated/swarms")({
   component: SwarmsPage,
@@ -1316,6 +1317,9 @@ function SwarmsCanvas({
 
   const commitEdgeLabel = useCallback(() => {
     if (!edgeLabelTarget) return;
+    // A name over the limit (one saved before it) is not saved until it is
+    // shortened: cutting it here would rename a route without saying so.
+    if (edgeLabelProblem(edgeLabelTarget.value)) return;
     const trimmed = edgeLabelTarget.value.trim();
     setEdges((eds: Edge[]) =>
       eds.map((e) => (e.id === edgeLabelTarget.id ? { ...e, label: trimmed || undefined } : e)),
@@ -1962,10 +1966,17 @@ function SwarmsCanvas({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="edge-label-input">Label</Label>
+            <div className="flex items-baseline justify-between">
+              <Label htmlFor="edge-label-input">Label</Label>
+              <span className="text-[11px] tabular-nums text-muted-foreground">
+                {edgeLabelLength(edgeLabelTarget?.value ?? "")}/{EDGE_LABEL_MAX_LENGTH}
+              </span>
+            </div>
             <Input
               id="edge-label-input"
               autoFocus
+              maxLength={EDGE_LABEL_MAX_LENGTH}
+              aria-invalid={edgeLabelProblem(edgeLabelTarget?.value ?? "") ? true : undefined}
               value={edgeLabelTarget?.value ?? ""}
               onChange={(e) =>
                 setEdgeLabelTarget((prev) => (prev ? { ...prev, value: e.target.value } : prev))
@@ -1978,12 +1989,22 @@ function SwarmsCanvas({
               }}
               placeholder="e.g. billing, yes, route-1"
             />
+            {edgeLabelProblem(edgeLabelTarget?.value ?? "") && (
+              <p className="text-[11px] text-destructive">
+                {edgeLabelProblem(edgeLabelTarget?.value ?? "")} Shorten it to save.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEdgeLabelTarget(null)}>
               Cancel
             </Button>
-            <Button onClick={commitEdgeLabel}>Save</Button>
+            <Button
+              onClick={commitEdgeLabel}
+              disabled={!!edgeLabelProblem(edgeLabelTarget?.value ?? "")}
+            >
+              Save
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
