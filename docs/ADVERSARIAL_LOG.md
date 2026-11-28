@@ -109,6 +109,22 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-28 — R557: a failing check posted addresses to a team channel
+
+**Why this round.** After R556, a sweep for other places that copy values out of the data and show them to more people than its owner. Every caller of `notifyUser` was read: data monitors quote counts and column names only; the semantic layer's "e.g." strings are SQL hints. Data-quality findings were the one that quoted rows.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Quality alerts carried values to Slack, Teams and webhooks | S2 | **Found in scoping.** A failing `unique`, `accepted_values` or `range` check quoted up to three values it found, and the alert sent when a dataset's verdict changed carried that line; alerts are mirrored to the owner's connected channels, so a duplicated email column put addresses in front of everyone in the channel. Alerts now carry a value-free line. |
+| Findings on personal columns quoted personal values | S3 | **Found in scoping.** In the app too: "e.g. "ann@…" ×2". A finding on a column that holds personal data (judged from its first 500 values, else its name) now says how many rows and what the column holds. Other columns keep their examples, which is what makes a failing `accepted_values` check useful. |
+| A column's name made it "dates of birth" | S4 | **Found in the UI test.** On a dataset page, `C_BIRTH_COUNTRY` is listed as dates of birth: the name check matches "birth", and the page did not read the values. Left as found: the page says it is a name-only guess, and the quality check above judges from values (where countries are not dates). |
+
+**Checked and sound.**
+- **Nothing else quotes values**: freshness, row-count and not-null findings are counts; a passing check quotes nothing.
+- **A capped read still says so** in the value-free line, so an alert never claims more than was checked.
+- **A name the values contradict does not hide examples**: an `email_campaign_id` of numbers keeps them (20 values overrule the name).
+- 12 unit tests; 9 mutants killed (each of the three checks unguarded, the alert and the server's use of it, the brief quoting, the cap note).
+
 ### 2026-11-28 — R556: the catalog kept what the data's own rules hid
 
 **Why this round.** Found in R555's UI test: a column the crawl had just marked as email addresses still showed one of them under Sample.

@@ -7,6 +7,8 @@
 // know what `not_null` and `accepted_values` mean, and a test suite written
 // here should be legible to someone who has never seen this app.
 
+import { classifyColumn, SENSITIVE_LABEL, type SensitiveKind } from "@/lib/sensitiveData";
+
 export type QualityTestKind =
   "not_null" | "unique" | "accepted_values" | "range" | "row_count_min" | "freshness";
 
@@ -41,7 +43,14 @@ export type QualityOutcome = {
   status: QualityStatus;
   failingRows: number;
   totalRows: number;
+  /** What the owner sees: may quote a few example values (never personal ones). */
   detail: string;
+  /**
+   * The same finding with no value from the data in it (R557). This is what
+   * leaves the app: alerts are mirrored to Slack, Teams and webhooks, where
+   * everyone in the channel reads them. Unset where detail quotes no values.
+   */
+  brief?: string;
 };
 
 export type QualityResult = QualityOutcome & {
@@ -183,6 +192,68 @@ function withCapNote(detail: string, ctx: QualityContext): string {
   return ctx.capped
     ? `${detail} (checked the first ${ctx.rows.length.toLocaleString()} rows)`
     : detail;
+}
+
+/** Values read to judge whether a column holds personal data: plenty for the classifier. */
+const PERSONAL_SAMPLE = 500;
+
+/**
+ * What personal data the column holds ("email addresses"), judged from its
+ * values the way a dataset's page does, else from its name; null when none.
+ */
+function personalLabel(col: string, ctx: QualityContext): string | null {
+  const values: unknown[] = [];
+  for (const r of ctx.rows) {
+    const v = r[col];
+    if (isBlank(v)) continue;
+    values.push(v);
+    if (values.length >= PERSONAL_SAMPLE) break;
+  }
+  const f = classifyColumn(col, values);
+  if (!f) return null;
+  return Object.prototype.hasOwnProperty.call(SENSITIVE_LABEL, f.kind)
+    ? SENSITIVE_LABEL[f.kind as SensitiveKind]
+    : "personal data";
+}
+
+/**
+ * A failing finding with examples (R557): `brief` never quotes a value;
+ * `detail` adds a few examples unless the column holds personal data, when it
+ * says why there are none.
+ */
+function withExamples(
+  brief: string,
+  examples: string,
+  personal: string | null,
+  ctx: QualityContext,
+): { brief: string; detail: string } {
+  return {
+    brief: withCapNote(`${brief}.`, ctx),
+    detail: withCapNote(
+      personal
+        ? `${brief}. No examples are shown: the column holds ${personal}.`
+        : `${brief} — e.g. ${examples}.`,
+      ctx,
+    ),
+  };
+}
+
+/**
+ * The lines of a quality alert: one per check that did not pass, from its
+ * value-free `brief`. Alerts go to the owner's channels, so a value from the
+ * data (an address in a duplicated email column, say) never goes with them.
+ */
+export function qualityAlertLines(
+  bad: { test: QualityTest; outcome: QualityOutcome }[],
+  max = 5,
+): string {
+  return bad
+    .slice(0, max)
+    .map(
+      (r) =>
+        `• ${describeQualityTest(r.test)}${r.test.severity === "warn" ? " (warn)" : ""}: ${r.outcome.brief ?? r.outcome.detail}`,
+    )
+    .join("\n");
 }
 
 function fmtAge(ms: number): string {
@@ -333,17 +404,27 @@ export function evaluateQualityTest(
         }
       }
       worst.sort((a, b) => b[1] - a[1]);
+      if (bad === 0) {
+        return {
+          ...base,
+          status: "pass",
+          detail: withCapNote(
+            `All ${counts.size.toLocaleString()} non-empty values in "${col}" are distinct.`,
+            ctx,
+          ),
+        };
+      }
       return {
         ...base,
         failingRows: bad,
-        status: bad === 0 ? "pass" : "fail",
-        detail: withCapNote(
-          bad === 0
-            ? `All ${counts.size.toLocaleString()} non-empty values in "${col}" are distinct.`
-            : `${bad.toLocaleString()} rows share a duplicated "${col}" — e.g. ${worst
-                .slice(0, SAMPLES)
-                .map(([k, n]) => `${JSON.stringify(k)} ×${n}`)
-                .join(", ")}.`,
+        status: "fail",
+        ...withExamples(
+          `${bad.toLocaleString()} rows share a duplicated "${col}"`,
+          worst
+            .slice(0, SAMPLES)
+            .map(([k, n]) => `${JSON.stringify(k)} ×${n}`)
+            .join(", "),
+          personalLabel(col, ctx),
           ctx,
         ),
       };
@@ -362,16 +443,21 @@ export function evaluateQualityTest(
           if (seen.size < SAMPLES) seen.add(k);
         }
       }
+      if (bad === 0) {
+        return {
+          ...base,
+          status: "pass",
+          detail: withCapNote(`Every non-empty "${col}" is in the accepted list.`, ctx),
+        };
+      }
       return {
         ...base,
         failingRows: bad,
-        status: bad === 0 ? "pass" : "fail",
-        detail: withCapNote(
-          bad === 0
-            ? `Every non-empty "${col}" is in the accepted list.`
-            : `${bad.toLocaleString()} rows have an unexpected "${col}" — e.g. ${[...seen]
-                .map((v) => JSON.stringify(v))
-                .join(", ")}.`,
+        status: "fail",
+        ...withExamples(
+          `${bad.toLocaleString()} rows have an unexpected "${col}"`,
+          [...seen].map((v) => JSON.stringify(v)).join(", "),
+          personalLabel(col, ctx),
           ctx,
         ),
       };
@@ -399,16 +485,23 @@ export function evaluateQualityTest(
     }
     const bounds =
       min != null && max != null ? `${min}–${max}` : min != null ? `≥ ${min}` : `≤ ${max}`;
+    if (bad === 0) {
+      return {
+        ...base,
+        status: "pass",
+        detail: withCapNote(`Every non-empty "${col}" is within ${bounds}.`, ctx),
+      };
+    }
     return {
       ...base,
       failingRows: bad,
-      status: bad === 0 ? "pass" : "fail",
-      detail: withCapNote(
-        bad === 0
-          ? `Every non-empty "${col}" is within ${bounds}.`
-          : `${bad.toLocaleString()} rows fall outside ${bounds}${
-              nonNumeric ? ` (${nonNumeric.toLocaleString()} not numeric)` : ""
-            } — e.g. ${[...seen].join(", ")}.`,
+      status: "fail",
+      ...withExamples(
+        `${bad.toLocaleString()} rows fall outside ${bounds}${
+          nonNumeric ? ` (${nonNumeric.toLocaleString()} not numeric)` : ""
+        }`,
+        [...seen].join(", "),
+        personalLabel(col, ctx),
         ctx,
       ),
     };

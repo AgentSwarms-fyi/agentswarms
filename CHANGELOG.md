@@ -351,6 +351,15 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Quality findings quote no personal values** (R557). A failing `unique`,
+  `accepted_values` or `range` check quoted up to three of the values it
+  found ("e.g. "ann@…" ×2"), and the alert sent when a dataset's verdict
+  changed carried that line to the owner's connected Slack, Teams and webhook
+  channels. A finding on a column that holds personal data (judged from its
+  values, else its name) now says how many rows and what the column holds,
+  and quotes none; other columns keep their examples in the app. Alerts quote
+  no values at all. Findings already stored keep their text; they are only
+  ever shown to the dataset's owner.
 - **No values of personal columns in the catalog** (R556). A crawl kept one
   sample of every column it profiled, and for numbers the lowest and highest
   values, including a column it had just marked as email addresses. The

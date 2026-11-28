@@ -298,6 +298,11 @@ month`, since the rows underneath have no `month` column to filter on.
   Results are written by the server and are read-only to you: a red check
   cannot be edited green. Checks that cannot run — a missing column,
   unparseable dates — report _error_ rather than quietly passing.
+  A failing `unique`, `accepted_values` or `range` check shows you a few of
+  the values it found, unless the column holds personal data (judged from its
+  values, like the dataset's page): then it says how many rows and what the
+  column holds, and quotes none. Alerts quote no values at all, since they
+  are also posted to your connected Slack, Teams and webhook channels.
 - **Version history** — every overwrite of a dataset (file re-upload, **Run &amp;
   save**, scheduled refresh, incremental refresh) snapshots the outgoing
   contents first, and any of the last few versions can be restored from the

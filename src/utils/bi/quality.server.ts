@@ -9,8 +9,8 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import {
   anyTestNeedsRows,
-  describeQualityTest,
   evaluateQualityTest,
+  qualityAlertLines,
   rollupQuality,
   type QualityOutcome,
   type QualityRollup,
@@ -241,13 +241,8 @@ async function notifyVerdictChange(
       });
       return;
     }
-    const lines = bad
-      .slice(0, 5)
-      .map(
-        (r) =>
-          `• ${describeQualityTest(r.test)}${r.test.severity === "warn" ? " (warn)" : ""}: ${r.outcome.detail}`,
-      )
-      .join("\n");
+    // Mirrored to the owner's Slack, Teams and webhooks: no value from the data (R557).
+    const lines = qualityAlertLines(bad);
     await notifyUser(userId, {
       title:
         after.status === "fail"

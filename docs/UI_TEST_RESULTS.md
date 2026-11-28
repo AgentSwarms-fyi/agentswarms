@@ -15,6 +15,19 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-28 — R557: quality findings quote no personal values
+
+Driven on the 8080 stack rebuilt from the R557 working tree, signed in as the owner, on the dataset page of `tpcds_sf10tcl_customer` (TPC-DS benchmark data: its addresses are synthetic). Fixtures: two quality checks added to that dataset for the test, kept until the owner says to delete them.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Dataset page, Checks and versions | Add check: Accepted values, the column C_EMAIL_ADDRESS, allowed `none@example.com` | the check listed as "C_EMAIL_ADDRESS is one of none@example.com" |
+| Same | Add check: Accepted values, the column C_SALUTATION, allowed `Mx.` | listed as "C_SALUTATION is one of Mx." |
+| Same | Run | verdict "fail, just now"; the email check reads "660 rows have an unexpected "C_EMAIL_ADDRESS". No examples are shown: the column holds email addresses."; the salutation check keeps its examples: "657 rows have an unexpected "C_SALUTATION" — e.g. "Dr.", "Mrs.", "Mr."." |
+| Database | `data_quality_results` for the dataset | the stored details match the page word for word, no address in any of them; `notifications`: no "Data quality…" row in the hour (a run from the page is quiet, so nothing reached the owner's channels) |
+
+Not driven: the alert itself. It is sent by the scheduled sweep when a verdict changes, and would have been posted to the owner's real Slack, Teams and webhook channels; its text is held by the unit tests (`qualityAlertLines`). Seen on the dataset's Overview: C_BIRTH_COUNTRY is listed as "dates of birth" because its name contains "birth" (a name-only guess, as the page says); filed below.
+
 ## 2026-11-28 — R556: no values of personal or hidden columns in the catalog
 
 Driven on the 8080 stack rebuilt from the R556 working tree, after the owner applied migration `20261213000000`, signed in as the owner. The page reported itself hidden throughout (the app window was covered), so the panel was read from the DOM rather than screenshots. Fixture: one made-up file uploaded to `etl/r556-test/contacts/contacts.csv` (30 rows; `contact` holds `person<n>@example.com`). Deleted with the owner's permission at the end of the round; a re-crawl took it out of the catalog (back to the source's 12 assets).
