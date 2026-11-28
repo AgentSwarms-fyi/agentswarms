@@ -325,6 +325,36 @@ describe("proposing", () => {
     expect(refused.startsWith(lib.NOT_PROPOSED)).toBe(true);
   });
 
+  it("tells the model what each earlier answer actually filed", async () => {
+    // Found from the UI: with the prompt rule in place, the repeat request in
+    // a conversation holding a false claim was answered "I have already
+    // proposed…" with no call. The history now says what happened.
+    const { messagesToSend, FILED_NOTE, UNFILED_NOTE } = await import("@/lib/assistantThread");
+    const sent = messagesToSend([
+      { role: "user", content: "pause it" },
+      {
+        role: "assistant",
+        content: "I have proposed to pause it.",
+        tools: [{ name: "propose_action", status: "ok" }],
+      },
+      { role: "user", content: "run it now" },
+      { role: "assistant", content: "I have proposed to run it now." },
+      { role: "user", content: "what is this page for?" },
+      { role: "assistant", content: "It lists your workflows." },
+      { role: "user", content: "run it now" },
+    ]);
+    expect(sent.map((m) => m.content)).toEqual([
+      "pause it",
+      `I have proposed to pause it.${FILED_NOTE}`,
+      "run it now",
+      `I have proposed to run it now.${UNFILED_NOTE}`,
+      "what is this page for?",
+      "It lists your workflows.",
+      "run it now",
+    ]);
+    expect(UNFILED_NOTE).toContain("nothing was filed");
+  });
+
   it("flags an answer that says it proposed something it never filed", async () => {
     // Found from the UI with the default model: the third request in one
     // conversation was answered "I have proposed to run…" with no call made.

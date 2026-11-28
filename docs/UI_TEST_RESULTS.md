@@ -15,6 +15,36 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-28 — R554: personal data in lakehouse shares
+
+Driven on the 8080 stack rebuilt at `384669bb`, signed in as the owner, in a fronted tab. Fixtures: a lake table `analytics.r554_share_test` (25 rows; `contact` holds `person<n>@example.com`), a share `r554-test` holding it with no masks, and — with the owner's permission — one recipient token expiring in a day, revoked at the end of the round.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Scheduler pass (boot) | the new image starting with one live token on the share | `query_log`: `SELECT * FROM "analytics"."r554_share_test" LIMIT 500`, via `monitor`, 25 rows, once per worker that ran a pass (3); `approvals`: ONE pending `lakehouse.share.mask_columns` — "Mask personal data in analytics.r554_share_test in the share r554-test", columns `["contact"]`, evidence "25 of 25 values are email addresses.", "the one recipient who holds a token"; the two later sweeps filed nothing (one waiting) |
+| Approvals inbox | the suggestion's card | eye-off icon, "r554-test · suggested", the fixed-word description, "contact — 25 of 25 values are email addresses.", **Open the share** |
+| Same | Open the share (from the lakehouse page itself) | `/lakehouse?open=share:<id>` opened the Shares dialog on r554-test, and the address was tidied back to `/lakehouse` |
+| Same | Approve | count 243 → 242; `lakehouse_share_tables.masked_columns = {contact}` (blank); the approval `approved`, `resumed_at` set once; audit `lakehouse.share.mask_suggested` then `lakehouse.share.columns_masked` with `added: ["contact"]` and the approval id. The carry-out took ~20 s: every fresh lakehouse connection on this stack retries two unreachable Iceberg catalogs at 192.168.1.85 first |
+| Shares dialog | the eye button on the shared table, `Spend` typed, Mask | the badge read "masked: contact, spend (blank)" — the lake's spelling, not the one typed; the field closed |
+| Same | Revoke token r554-test | "Token "r554-test" revoked"; no live token left |
+
+## 2026-11-28 — R553: the assistant asks to run or pause something
+
+Driven on the 8080 stack rebuilt from the worktree (R553 at `11828aca`, then again at `384669bb` with the follow-up), signed in as the owner, in a fronted tab, on Workflows, with the workspace's default model. Fixture: a workflow "R553 assistant test" (one 1-second Wait step, weekly), moved to the trash at the end.
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Assistant | the empty panel | "The assistant changes nothing itself: asked to run or pause one of your workflows or pipelines, it puts it in your approvals for you to say yes." |
+| Same | "Please pause the schedule of @R553 assistant test" | **Asked for your approval**; "I have proposed to pause the schedule… approve it in your approvals inbox"; a toast "A suggestion, waiting for your yes or no" with Review |
+| Approvals inbox | the card; Approve | "Assistant · proposed", low risk, the fixed description, **Open it**; count 243 → 242; toast "Paused … Its schedule is paused."; `workflows.is_active = false`; the approval claimed once |
+| Same | the toast's Open | landed on the page already showing the workflow, whose Settings still read **Active** (fixed: it reads the workflow again), and whose next Save would have switched the schedule back on (fixed: the change gives it a new version) |
+| Assistant | "Now resume it again please"; Reject | proposed from "it"; "Not done: … Nothing was changed."; still paused |
+| Same | "Pause the schedule of @R450 notify" (manual) | "does not have a schedule to pause, as it runs only when started" — but the step read "Asked for your approval" (fixed: "Nothing filed for approval") |
+| Same | "Run @R553 assistant test now", the third request | "I have proposed to run…" with NO call: no proposal in `approvals` (fixed below) |
+| Same, at `384669bb` | the same conversation reloaded | under that answer: "Nothing was put in your approvals by this answer. Ask again to have it proposed." |
+| Same | the same request again | "I have already proposed…", still no call, and the note under it: the prompt rule alone did not stop it |
+| Same, the history as the next build sends it | each earlier answer carrying what it filed; the same request | **Asked for your approval**, a real proposal; approved → "Ran the workflow… A run started."; `workflow_runs.state = succeeded`, trigger manual; the schedule still paused |
+
 ## 2026-11-27 — R552: asking the assistant about one of your things
 
 Driven on the 8080 stack rebuilt from the worktree, signed in as the owner, in a fronted tab, on the ML Models page, with the workspace's default model.

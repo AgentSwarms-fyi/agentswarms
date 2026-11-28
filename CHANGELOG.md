@@ -989,9 +989,12 @@ development branch and may be ahead of the latest tag.
   - A proposal the tool refused (no schedule, not yours) no longer shows
     "Asked for your approval".
   - After two proposals in one conversation, the default model answered a
-    third request with "I have proposed…" without filing anything. The prompt
-    now asks for the call every time, and an answer that claims a proposal it
-    never filed is marked under it.
+    third request with "I have proposed…" without filing anything, and with a
+    prompt rule asking for the call every time it still answered "I have
+    already proposed…". Answers reach the model as text, so it copied its
+    own. Each earlier answer now tells the model what it actually filed (with
+    that, it made the call), and an answer that claims a proposal it never
+    filed is marked under it.
   - Titles read "Pause the schedule of the workflow “X”" rather than putting a
     possessive after the closing quote.
 - **A workflow with a step the database did not know yet failed in the

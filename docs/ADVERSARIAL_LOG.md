@@ -109,6 +109,37 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-28 — R554: a share sent out what its column names did not give away
+
+**Why this round.** R521 checks a shared dataset from its values; a lakehouse table shared outside the platform (Delta Sharing) was masked only by what its owner typed, or by tag rules on columns somebody tagged. The catalog's personal-data flag drives neither.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| Personal data reached share recipients unmasked | S2 | **Found in scoping.** A `contact` column of email addresses went out as it was. A sweep now reads each shared table with a live recipient as its owner, classifies the values, sees through the share's and the table's own masks, and asks the owner in the inbox; approving masks the columns in that share. |
+| A share's masks could not be changed in place | S4 | **Found in scoping.** Only remove-and-add-back. The Shares dialog masks more columns through the same writer as an approval (masks only grow). |
+| Masking could be slow enough to fail | S4 | **Found in the UI test.** The columns are read through a fresh lakehouse connection, which on this stack spent ~20 s retrying unreachable Iceberg catalogs — the read's own timeout. It held; on a slower day it would say the table "could not be read just now" and give the claim back. Left as found: the slow attach is the stack's, and the failure is safe. |
+
+**Checked and sound.**
+- **Only shares someone can read**: revoked and expired tokens do not count, and the token hash is never read (tested, mutation-checked).
+- **Asked once**: three workers swept; one suggestion. A column asked about before is never asked again, whatever the answer.
+- **The approval proves nothing by itself**: the share's owner is checked against `lakehouse_shares` when it is carried out, and the claim is given back on any failure.
+
+### 2026-11-28 — R553: the assistant said it had asked when it had not
+
+**Why this round.** The assistant's third half since R518: asked to run or pause something, it could only say where to press. It proposes now; the change waits for the owner's yes in the inbox.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| The model claimed a proposal it never filed | S2 | **Found in the UI test.** With the default model, the third request in a conversation was answered "I have proposed to run…" with no call; nothing waited in the inbox. Answers reach the model as text, so it copied its earlier ones. A prompt rule ("call it in this reply, every time") did not stop it: it answered "I have already proposed…". Fixed by telling the model, with the history, what each earlier answer actually filed — then it called the tool — and by a note under any answer that claims a proposal it did not file. |
+| An approved pause could be undone by a stale page | S2 | **Found in the UI test.** The workflow page opened before the approval kept the old version; its next Save passed the version check and switched the schedule back on. Carrying out a change now gives the workflow a new version, so that Save is refused as changed elsewhere; a link to the open workflow reads it again. |
+| A refusal read as "Asked for your approval" | S4 | **Found in the UI test.** The loop marks a refused proposal not-ok; the step reads "Nothing filed for approval". |
+| A possessive after a closing quote | S4 | "“X”'s schedule" reads as a typo: "Pause the schedule of the workflow “X”". |
+
+**Checked and sound.**
+- **Only the reader's own things**: a shared workflow is refused (its owner's to change); on a headless run the tool is not offered at all (tested, mutation-checked).
+- **The approval's words are fixed**: the title and description are built from fixed words and the thing's name, never the model's text.
+- **Carried out once, as it is now**: claimed through `resumed_at`, re-read as the owner, checked again; a resume starts from the next scheduled time, not a missed one.
+
 ### 2026-11-27 — R552: the assistant could find your things, never say anything about them
 
 **Why this round.** The assistant's second half since R518: it linked a thing by name and stopped there, so "is my churn model healthy?" had no answer short of opening it. Read as the person asking, and as someone whose things are shared with them.

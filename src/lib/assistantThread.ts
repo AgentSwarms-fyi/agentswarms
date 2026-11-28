@@ -89,11 +89,11 @@ export function messagesToSend(
     .map((m) => ({
       role: m.role,
       // A question's mentions travel with it, so a follow-up still knows
-      // which thing "it" was.
+      // which thing "it" was; an answer carries what it actually filed.
       content:
         m.role === "user" && m.mentions?.length
           ? `${m.content}${mentionNote(m.mentions)}`
-          : m.content,
+          : `${m.content}${filedNote(m)}`,
     }));
   const out: Array<{ role: "user" | "assistant"; content: string }> = [];
   let chars = 0;
@@ -128,6 +128,25 @@ export function unfiledProposal(m: AssistantMessage): boolean {
   if (m.tools?.some((t) => t.status === "running")) return false;
   if (m.tools?.some((t) => t.name === "propose_action" && t.status === "ok")) return false;
   return SAYS_IT_PROPOSED.test(m.content);
+}
+
+export const FILED_NOTE = "\n\n[Filed for approval by a propose_action call.]";
+export const UNFILED_NOTE =
+  "\n\n[No tool was called for this answer, so nothing was filed: what it says was not done.]";
+
+/**
+ * What an earlier answer filed, said to the model with the history (R553).
+ *
+ * FOUND FROM THE UI. Answers reach the model as text only, so it cannot see
+ * which of its earlier "I have proposed…" came with a call. With the prompt
+ * asking for the call every time, the default model still answered a repeat
+ * request "I have already proposed…" and called nothing, copying its own
+ * earlier (false) claim. Each answer now says what actually happened.
+ */
+export function filedNote(m: AssistantMessage): string {
+  if (m.role !== "assistant") return "";
+  if (m.tools?.some((t) => t.name === "propose_action" && t.status === "ok")) return FILED_NOTE;
+  return unfiledProposal(m) ? UNFILED_NOTE : "";
 }
 
 /** What the reader is told a tool is doing, or did. */
