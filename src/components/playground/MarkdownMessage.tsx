@@ -5,6 +5,7 @@ import rehypeHighlight from "rehype-highlight";
 import { Check, Copy, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MermaidBlock } from "@/components/playground/MermaidBlock";
+import { lastListNumber, numberedListIndent } from "@/lib/listIndent";
 import { safeUrl } from "@/lib/safeUrl";
 
 /**
@@ -108,11 +109,24 @@ function MarkdownChunk({ content }: { content: string }) {
               {children}
             </ul>
           ),
-          ol: ({ children }) => (
-            <ol className="my-3 ml-5 list-decimal space-y-1.5 marker:text-muted-foreground">
-              {children}
-            </ol>
-          ),
+          // `start` is passed on: a list's first number is part of what was
+          // written. Dropping it renumbered every list from 1, and an answer
+          // that is only "12." (a list item with nothing in it, in markdown)
+          // read "1." in the chat: right answers looked wrong. The indent
+          // makes room for the widest number, or "10." lost its "1" at the
+          // message's edge and read "0." (src/lib/listIndent.ts).
+          ol: ({ children, start }) => {
+            const indent = numberedListIndent(lastListNumber(start, children));
+            return (
+              <ol
+                start={start}
+                className="my-3 ml-5 list-decimal space-y-1.5 marker:text-muted-foreground"
+                style={indent ? { marginLeft: indent } : undefined}
+              >
+                {children}
+              </ol>
+            );
+          },
           li: ({ children }) => <li className="text-sm leading-7">{children}</li>,
           blockquote: ({ children }) => (
             <blockquote className="my-4 border-l-2 border-primary/50 bg-muted/40 px-4 py-2 text-sm italic text-muted-foreground">
