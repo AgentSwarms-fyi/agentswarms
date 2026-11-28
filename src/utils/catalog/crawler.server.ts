@@ -47,6 +47,7 @@ import {
   countParquetRows,
   describeObject,
   duckReadableFormat,
+  sampleTextColumns,
 } from "./objectStoreRead.server";
 import { crawlHiveMetastore } from "./hive/crawl.server";
 import { crawlGlue, glueHosts, type GlueConfig } from "./hive/glue.server";
@@ -107,6 +108,8 @@ export type CatalogColumn = {
   pii_kind?: string;
   /** How that is known: from sampled values where the crawl profiled the table, else its name. */
   pii_evidence?: string;
+  /** The verdict was read from its values, so a crawl that reads none keeps it (R555). */
+  pii_from_values?: boolean;
   /** Curation/AI documentation — preserved across re-crawls. */
   description?: string;
   /** Owner-written tags, merged forward from the previous crawl. */
@@ -179,26 +182,56 @@ export type CrawlStats = {
 // The heuristic itself lives in lib/piiHeuristic so the catalog UI and this
 // crawler cannot drift apart; this file used to carry its own copy. Since
 // R521 a table the crawl profiles is classified again from its sampled
-// values (lib/sensitiveData), which overrule the name where they can.
+// values (lib/sensitiveData), which overrule the name where they can. Since
+// R555 lake files are too: a CSV or JSON file from the sample the crawl
+// already reads, a Parquet file from the first rows of its text columns.
 import { isPiiColumnName } from "@/lib/piiHeuristic";
 import { classifyColumn } from "@/lib/sensitiveData";
 
 export const isPiiColumn = isPiiColumnName;
 
-/** A column with its personal-data finding set, or cleared when there is none. */
+/**
+ * A column with its personal-data finding set, or cleared when there is none.
+ * With values, the verdict is marked as read from them (`pii_from_values`),
+ * found or not; with none, it is the name's.
+ */
 function withFinding<C extends CatalogColumn>(c: C, values: readonly unknown[]): C {
   const f = classifyColumn(c.name, values);
-  const { pii: _p, pii_kind: _k, pii_evidence: _e, ...rest } = c;
+  const {
+    pii: _p,
+    pii_kind: _k,
+    pii_evidence: _e,
+    pii_from_values: _v,
+    ...rest
+  } = c as C & { values?: unknown };
+  const read = values.length > 0 ? { pii_from_values: true } : {};
   return f
-    ? { ...(rest as C), pii: true, pii_kind: f.kind, pii_evidence: f.evidence }
-    : (rest as C);
+    ? ({ ...rest, pii: true, pii_kind: f.kind, pii_evidence: f.evidence, ...read } as C)
+    : ({ ...rest, ...read } as C);
 }
 
-function classify(columns: { name: string; type: string; sample?: string }[]): {
+/**
+ * Each column's finding, from the values sampled with it when there are any.
+ * A column with none whose verdict was read from values before (a file the
+ * crawl did not read again because it has not changed) keeps it: judging it
+ * by its name again would undo what its values showed, a `contact` column of
+ * addresses unflagged or an `email_campaign_id` of numbers flagged, every
+ * other crawl. The values passed in for this are never stored.
+ */
+export function classify(
+  columns: ReadonlyArray<
+    { name: string; type: string; sample?: string; values?: unknown[] } & Partial<CatalogColumn>
+  >,
+): {
   columns: CatalogColumn[];
   pii: boolean;
 } {
-  const out = columns.map((c) => withFinding<CatalogColumn>({ ...c }, []));
+  const out = columns.map((col) => {
+    const { values, ...c } = col;
+    if (values?.length) return withFinding<CatalogColumn>(c, values);
+    if (c.pii_from_values) return { ...c } as CatalogColumn;
+    return withFinding<CatalogColumn>(c, []);
+  });
   return { columns: out, pii: out.some((c) => c.pii) };
 }
 
@@ -627,7 +660,12 @@ export function estimateRows(
 /** Prior crawl state for incremental sampling: fqn → reusable metadata. */
 export type PriorAssets = Map<
   string,
-  { columns: CatalogColumn[]; row_count: number | null; row_count_estimated?: boolean }
+  {
+    columns: CatalogColumn[];
+    row_count: number | null;
+    row_count_estimated?: boolean;
+    pii_values_read?: boolean;
+  }
 >;
 
 export async function crawlObjectStorage(
@@ -664,6 +702,8 @@ export async function crawlObjectStorage(
     let inferred: InferredColumn[] = [];
     let rowEstimate: number | null = null;
     let rowsEstimated = false;
+    // Whether its values were read for the personal-data check (R555).
+    let valuesRead = false;
     // Head-of-file text sampling. Works for anything line-oriented.
     const canSample = g.format === "csv" || g.format === "json" || g.format === "ndjson";
     // Formats DuckDB opens directly from the bucket. Parquet is here and not
@@ -680,15 +720,26 @@ export async function crawlObjectStorage(
       g.objects.length > 1 &&
       sampleBudget.has(g) &&
       sampled < MAX_SAMPLES;
-    if (reuse && reuse.columns.length > 0 && !recount) {
+    // A file crawled before its values were read for personal data (R555)
+    // holds a verdict from its column names alone. Read it once more while the
+    // budget allows; after that it is reused as before.
+    const recheck =
+      (canSample || g.format === "parquet") &&
+      !!reuse &&
+      !reuse.pii_values_read &&
+      sampleBudget.has(g) &&
+      sampled < MAX_SAMPLES;
+    if (reuse && reuse.columns.length > 0 && !recount && !recheck) {
       inferred = reuse.columns;
       rowEstimate = reuse.row_count;
       rowsEstimated = reuse.row_count_estimated ?? g.objects.length > 1;
+      valuesRead = reuse.pii_values_read ?? false;
     } else if (canSample && sampleBudget.has(g) && sampled < MAX_SAMPLES) {
       const biggest = [...g.objects].sort((a, b) => b.size - a.size)[0];
       try {
         const buf = await sampleObject(cfg, biggest.key, SAMPLE_BYTES);
         inferred = inferColumns(g.format, buf, biggest.key);
+        valuesRead = true;
         const perFile = estimateRows(buf, biggest.size, g.format, biggest.key);
         if (perFile !== null) {
           // Scale the per-byte density across the whole group.
@@ -708,10 +759,18 @@ export async function crawlObjectStorage(
       const biggest = [...g.objects].sort((a, b) => b.size - a.size)[0];
       const format = duckReadableFormat(g.format)!;
       try {
-        inferred = (await describeObject(cfg, biggest.key, format)).map((c) => ({
+        const described = await describeObject(cfg, biggest.key, format);
+        // Its text columns' first rows, for the personal-data check only
+        // (R555); no profile, which would need a scan.
+        const text =
+          format === "parquet" ? await sampleTextColumns(cfg, biggest.key, described) : [];
+        inferred = described.map((c) => ({
           name: c.name,
           type: duckTypeToCatalogType(c.type),
+          ...(text.length && c.name in text[0] ? { values: text.map((r) => r[c.name]) } : {}),
         }));
+        // Read, even when it has no text column to read: nothing to look at.
+        valuesRead = format === "parquet";
         // A Parquet file's count is in its footer, so a table of them can be
         // counted exactly without reading a row. Scaling the largest file by
         // size is what is left when there are too many footers to read: it
@@ -759,7 +818,7 @@ export async function crawlObjectStorage(
         format: g.format,
         file_count: g.objects.length,
         pii,
-        ...(partitionKeys.length || g.objects.length > 1 || rowsEstimated
+        ...(partitionKeys.length || g.objects.length > 1 || rowsEstimated || valuesRead
           ? {
               metadata: {
                 ...(partitionKeys.length
@@ -770,6 +829,7 @@ export async function crawlObjectStorage(
                     }
                   : {}),
                 ...(rowEstimate !== null ? { row_count_estimated: rowsEstimated } : {}),
+                ...(valuesRead ? { pii_values_read: true } : {}),
               },
             }
           : {}),
@@ -790,6 +850,7 @@ export async function crawlObjectStorage(
           format: g.format,
           file_count: null,
           pii: single ? pii : false,
+          ...(single && valuesRead ? { metadata: { pii_values_read: true } } : {}),
         });
       }
     }
@@ -1665,6 +1726,7 @@ export async function runCrawl(
             columns: e.columns,
             row_count: e.row_count,
             row_count_estimated: parseAssetMetadata(e.metadata).row_count_estimated,
+            pii_values_read: parseAssetMetadata(e.metadata).pii_values_read,
           },
         ]),
       );

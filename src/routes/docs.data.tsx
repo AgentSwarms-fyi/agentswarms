@@ -622,6 +622,19 @@ function DataPage() {
         size with no columns at all. The crawler now reads the footer directly, which also gives an
         exact row count without scanning the file. Nothing is downloaded to do it.
       </Callout>
+      <Callout kind="why" title="Personal data in lake files, from their values">
+        A crawl marks the columns that look personal, and for a file it reads it says so from the
+        values, the same way a dataset&apos;s page does: a <C>contact</C> column of email addresses
+        is found, an <C>email_campaign_id</C> of numbers is not. A CSV or JSON file is judged from
+        the sample the crawl already reads for its columns; a Parquet file from the first 200 rows
+        of up to 40 of its text columns, which reads those columns of one row group and stops, not
+        the file. Its other columns, and files the crawl does not read (ORC, a file past the
+        crawl&apos;s sample budget, a table in Iceberg, Delta or Hudi), are judged by their names,
+        and their findings say so. The values read for this are not kept, only the finding; a CSV or
+        JSON column&apos;s profile still shows one sample value, as before. An unchanged file keeps
+        what its values showed on the next crawl; a file crawled before this was added is read once
+        more.
+      </Callout>
       <Callout kind="warn" title="Bucket queries read up to 50,000 rows per file">
         A bucket query is not pushed down. The referenced files are read up to a per-file cap and
         the query runs locally, so a filter does not reduce what is fetched. When a file hits that

@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-28 — R555: personal data in lake files, from their values
+
+Driven on the 8080 stack rebuilt from the R555 working tree, signed in as the owner, in a fronted tab, against the bucket source "MinIO local etl demo" (bucket `etl`, last crawled 2026-10-31, before this round). Fixtures: two made-up files uploaded to `etl/r555-test/`: `contacts/contacts.csv` (30 rows; `contact` holds `person<n>@example.com`, `email_campaign_id` holds 1001–1030) and `people/people.parquet` (40 rows; text columns `reach_me` = `reader<n>@example.com` and `city`, numeric `id` and `spend`). Both were deleted with the owner's permission at the end of the round, and a re-crawl took them out of the catalog (back to the source's 12 assets).
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Data Catalog, source menu | Re-crawl of the source as it was (10 data files, 2 empty `init` markers) | `catalog_assets.metadata.pii_values_read = true` on all 10 data files (4 CSV, 4 Parquet, 2 NDJSON) and on neither empty marker; none marked personal, as before (the demo holds orders, currencies and regions; `customer_name` is not a name the check treats as personal, by name or value); `catalog_schema_versions`: no rows for the source, so reading the files again recorded no schema change |
+| Same | Re-crawl after the two test files were uploaded | the asset list, searched for `r555`, showed `contacts` (dataset · csv, 4 columns, 30 rows) and `people` (dataset · parquet, 4 columns, 40 rows), both with the PII badge |
+| Asset panel | `contacts` | the marker on `contact` only, its title "Personal data: email addresses. 30 of 30 values are email addresses."; `email_campaign_id` unmarked |
+| Same | `people` | the marker on `reach_me` only, "40 of 40 values are email addresses." (read from the Parquet file's text columns); `city`, `id`, `spend` unmarked |
+| Same, rows | a third re-crawl with nothing changed | both files reused: `contact` and `reach_me` still `pii: true`; every CSV column and the Parquet text columns carry `pii_from_values: true`; the Parquet number columns don't (judged by name); no column stores a `values` key |
+
+Seen in the panel: a CSV column's profile still shows one sample value (`person1@example.com` under Sample), as every profiled column has since before this round, warehouse tables included. The docs and changelog wording was made exact (the values read for the check are not kept; the profile sample is unchanged); hiding the sample of a column judged personal is left as its own change.
+
 ## 2026-11-28 — R554: personal data in lakehouse shares
 
 Driven on the 8080 stack rebuilt at `384669bb`, signed in as the owner, in a fronted tab. Fixtures: a lake table `analytics.r554_share_test` (25 rows; `contact` holds `person<n>@example.com`), a share `r554-test` holding it with no masks, and — with the owner's permission — one recipient token expiring in a day, revoked at the end of the round.

@@ -344,6 +344,20 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **Personal data in lake files, from their values** (R555). The catalog's
+  crawl of a bucket marked personal columns from their names alone, while
+  warehouse tables it profiles were judged from values since R521: a CSV whose
+  `contact` column held email addresses went unmarked, and an
+  `email_campaign_id` of numbers was marked. A CSV or JSON file is now judged
+  from the sample the crawl already reads, and a Parquet file from the first
+  200 rows of up to 40 of its text columns (one row group, not the file); other
+  columns and unread formats keep the name check. The values read for the
+  check are not kept, only the finding (a column's profile sample is unchanged).
+  A column records that its verdict came from values (`pii_from_values`), so an
+  unchanged file keeps it on an incremental crawl instead of being judged by
+  name again, and an asset records that its values were read
+  (`metadata.pii_values_read`), so a file crawled before this is read once
+  more, within the crawl's sample budget. No migration.
 - **Personal data in lakehouse shares** (R554). A table in a Delta Sharing
   share went out with whatever the table's policy and the share's own masks
   left visible, and those were chosen by column name: a `contact` column of

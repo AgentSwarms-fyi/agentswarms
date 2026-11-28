@@ -277,6 +277,54 @@ export async function countParquetRows(
   }
 }
 
+/** Rows read from a Parquet file's text columns to look for personal data. */
+export const TEXT_SAMPLE_ROWS = 200;
+/** At most this many text columns are read, so a wide file stays cheap. */
+export const TEXT_SAMPLE_COLUMNS = 40;
+
+/**
+ * Whether a DuckDB column type holds text: exactly that, not a list or a
+ * struct of it, whose values the check could not read anyway.
+ */
+export const isTextType = (type: string) =>
+  /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR)(\(\d+\))?$/i.test(type.trim());
+
+/**
+ * The first rows of a Parquet file's text columns, for the personal-data
+ * check (R555). Only the text columns, and only the first rows: DuckDB reads
+ * those columns of the first row group and stops, so this stays a small read
+ * on a multi-gigabyte file, unlike a profile, which would scan. Numbers,
+ * dates and the rest are judged by their names, as before.
+ *
+ * The statement is composed here from names the file's own footer gave
+ * (quoted, never user text), as every statement in this module is. Empty when
+ * the file has no text columns or cannot be read: the check is best-effort,
+ * and a crawl never fails for it.
+ */
+export async function sampleTextColumns(
+  cfg: ObjectStoreConfig,
+  key: string,
+  columns: readonly ObjectColumn[],
+): Promise<Record<string, unknown>[]> {
+  const text = columns.filter((c) => isTextType(c.type)).slice(0, TEXT_SAMPLE_COLUMNS);
+  if (!text.length) return [];
+  try {
+    return await withConnection(cfg, async (run) => {
+      const cols = text.map((c) => `"${c.name.replace(/"/g, '""')}"`).join(", ");
+      const rows = await run(
+        `SELECT ${cols} FROM read_parquet(${lit(objectUrl(cfg, key))}) LIMIT ${TEXT_SAMPLE_ROWS}`,
+      );
+      return rows.map((row) => {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(row)) out[k] = toJsValue(v);
+        return out;
+      });
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** Row count from Parquet metadata — no scan. Null when unavailable. */
 export async function countObjectRows(
   cfg: ObjectStoreConfig,

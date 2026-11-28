@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "lake-file-personal-data",
+    date: "2026-11-28",
+    title: "Personal data in lake files",
+    body: "The catalog now finds personal data in CSV, JSON and Parquet files in your buckets from what their columns hold, not only from their names.",
+    link: { to: "/docs/data" },
+    cta: "How it works",
+  },
+  {
     id: "share-personal-data",
     date: "2026-11-28",
     title: "Personal data in your shares",

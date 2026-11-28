@@ -109,6 +109,22 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-28 — R555: a file in a bucket was judged by its column names
+
+**Why this round.** R521 judged a warehouse table the crawl profiles, and a dataset, from its values; its one open item was the lake. The catalog's crawl of a bucket still marked personal columns from their names, though for a CSV or JSON file it had already read the values to work out the columns.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A file's personal data was judged from its column names | S2 | **Found in scoping.** A CSV whose `contact` column held email addresses went unmarked, and an `email_campaign_id` of numbers was marked. A CSV or JSON file is now judged from the sample the crawl already reads; a Parquet file from the first 200 rows of up to 40 of its text columns. |
+| The verdict would flip on every other crawl | S2 | **Found in design.** A file that has not changed is reused, not read, so it would be judged by name again: the address column unmarked on the next crawl, marked on the one after a change. A column records that its verdict came from values, and a reused file keeps it. |
+| Files crawled before the change would never be read again | S2 | **Found in design.** Reuse is by size and modification time, so an unchanged old file would keep its name-only verdict forever. An asset records that its values were read; one without the record is read once more, within the crawl's sample budget. On the demo source all 10 data files were re-read on the first crawl. |
+| The docs said the values were never stored | S4 | **Found in the UI test.** A CSV column's profile shows one sample value, as profiled columns always have. The values read for the check are not kept; the wording now says that and no more. Hiding the sample of a column judged personal is left as its own change: it alters what warehouse tables show too. |
+
+**Checked and sound.**
+- **Nothing extra stored**: the `values` carried through the crawl are stripped before the row is written; no stored column has the key (read from the rows after three crawls).
+- **No false schema changes**: the schema hash uses name and type only, so the new fields and the re-reads recorded none.
+- **Parquet reads stay small**: only text columns (exact types, not lists or structs), `LIMIT 200`, one query; a failure falls back to the name check (tested, mutation-checked).
+
 ### 2026-11-28 — R554: a share sent out what its column names did not give away
 
 **Why this round.** R521 checks a shared dataset from its values; a lakehouse table shared outside the platform (Delta Sharing) was masked only by what its owner typed, or by tag rules on columns somebody tagged. The catalog's personal-data flag drives neither.

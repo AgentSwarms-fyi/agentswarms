@@ -35,6 +35,12 @@ export type AssetMetadata = {
    * approximate. False when it was counted. Unset on an older crawl's asset.
    */
   row_count_estimated?: boolean;
+  /**
+   * True when the crawl read the file's values for the personal-data check
+   * (R555). Unset on an older crawl's asset, whose columns were judged by
+   * their names: it is read once more, then reused as before.
+   */
+  pii_values_read?: boolean;
   /** Iceberg format version, snapshot count and the like, for a table format. */
   format_version?: number;
   snapshot_count?: number;

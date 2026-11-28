@@ -373,6 +373,11 @@ export type InferredColumn = {
   distinct_count?: number;
   min?: number;
   max?: number;
+  /**
+   * The values the sample held, for the personal-data check (R555). Read once
+   * by the crawl and never stored: the catalog keeps the finding, not them.
+   */
+  values?: unknown[];
 };
 
 export function fileFormat(key: string): string | null {
@@ -469,7 +474,11 @@ function columnsFromRecords(records: Record<string, unknown>[]): InferredColumn[
   for (const r of records) {
     for (const k of Object.keys(r)) if (!names.includes(k)) names.push(k);
   }
-  return names.slice(0, 200).map((name) => ({ name, ...computeColumnStats(records, name) }));
+  return names.slice(0, 200).map((name) => ({
+    name,
+    ...computeColumnStats(records, name),
+    values: records.map((r) => r[name]),
+  }));
 }
 
 /**

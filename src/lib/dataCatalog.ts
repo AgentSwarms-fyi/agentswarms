@@ -17,6 +17,12 @@ export type CatalogColumn = {
   pii_kind?: string;
   /** How that is known, in a sentence. */
   pii_evidence?: string;
+  /**
+   * The finding, or the lack of one, was read from the column's values (R555),
+   * so a later crawl that reads none (an unchanged file) keeps it instead of
+   * judging the column by its name again.
+   */
+  pii_from_values?: boolean;
   /** Column documentation (AI-generated or hand-written); survives re-crawls. */
   description?: string;
   /** Comment ingested from the external catalog (e.g. Unity Catalog). */

@@ -38,6 +38,7 @@ import {
   describeObject,
   duckReadableFormat,
   readObjectRows,
+  sampleTextColumns,
   avroUnavailableReason,
   needsIsolation,
 } from "@/utils/catalog/objectStoreRead.server";
@@ -139,6 +140,17 @@ beforeAll(async () => {
     )
   ).getRowObjects();
   await put(`/${CFG.bucket}/data/orders.parquet`, readFileSync(file));
+  // R555: email addresses under a name that does not say so, beside a list
+  // of text the personal-data read must leave alone.
+  const people = `${dir}/contacts.parquet`;
+  await (
+    await conn.run(
+      `COPY (SELECT i AS id, 'person' || i || '@example.com' AS contact, ['vip', 'eu'] AS labels
+             FROM range(25) t(i))
+       TO '${people}' (FORMAT PARQUET)`,
+    )
+  ).getRowObjects();
+  await put(`/${CFG.bucket}/people/contacts.parquet`, readFileSync(people));
   await put(`/${CFG.bucket}/data/regions.csv`, "region,manager\nEMEA,Ada\nAMER,Grace\nAPAC,Alan\n");
   rmSync(dir, { recursive: true, force: true });
 
@@ -280,6 +292,30 @@ describe("a real crawl produces a Parquet asset with columns", () => {
     ]) {
       expect(duckTypeToCatalogType(t), t).toBe("string");
     }
+  });
+});
+
+describe("personal data is read from a Parquet file's text columns (R555)", () => {
+  withMinio("reads only the text columns, as the file spells them", async () => {
+    const cols = await describeObject(CFG, "people/contacts.parquet", "parquet");
+    const rows = await sampleTextColumns(CFG, "people/contacts.parquet", cols);
+    expect(rows).toHaveLength(25);
+    // Not the id, not the list of text.
+    expect(Object.keys(rows[0])).toEqual(["contact"]);
+    expect(rows[3].contact).toBe("person3@example.com");
+  });
+
+  withMinio("a crawl flags the column from its values and says so", async () => {
+    const { assets } = await crawlObjectStorage(CFG);
+    const pq = assets.find((a) => a.fqn === "people/*.parquet")!;
+    expect(pq.columns.find((c) => c.name === "contact")).toMatchObject({
+      pii: true,
+      pii_kind: "email",
+      pii_evidence: "25 of 25 values are email addresses.",
+      pii_from_values: true,
+    });
+    expect(pq.pii).toBe(true);
+    expect(pq.metadata).toMatchObject({ pii_values_read: true });
   });
 });
 
