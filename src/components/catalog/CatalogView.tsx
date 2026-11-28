@@ -88,6 +88,7 @@ import { usePageIntent } from "@/hooks/use-page-intent";
 import type { PageIntent } from "@/lib/pageIntent";
 import { useBiModelPref } from "@/components/bi/biModelPref";
 import { classifyColumn, SENSITIVE_LABEL, type SensitiveKind } from "@/lib/sensitiveData";
+import { keepsNoValues } from "@/lib/catalogColumnValues";
 import {
   assetLineageKeys,
   fmtBytes,
@@ -146,6 +147,13 @@ import type { QualityRollup } from "@/lib/dataQualityCore";
 
 /** Local tables presented in the same shape as crawled assets. */
 type UnifiedAsset = CatalogAsset & { local?: boolean };
+
+/** Why a personal column's Sample cell is empty (R556). */
+const NO_SAMPLE_TITLE =
+  "This column holds personal data, so the catalog keeps no value of it: no sample and no range.";
+/** …and one a mask rule or row filter on its table hides. */
+const HIDDEN_SAMPLE_TITLE =
+  "A mask or row filter on this table hides this column's values from some readers, so the catalog keeps none of them.";
 
 /** "Personal data: email addresses. 48 of 50 values are email addresses." */
 function personalTitle(kind: string | undefined, evidence: string | undefined): string {
@@ -1985,7 +1993,7 @@ function AssetSheet({
                             </td>
                             <td className="px-2 py-1 text-[11px] text-muted-foreground">
                               {c.type}
-                              {c.min !== undefined && c.max !== undefined && (
+                              {!keepsNoValues(c) && c.min !== undefined && c.max !== undefined && (
                                 <p className="text-[9px] text-muted-foreground/70">
                                   {fmtCount(c.min)}–{fmtCount(c.max)}
                                 </p>
@@ -2003,12 +2011,21 @@ function AssetSheet({
                                 </td>
                               </>
                             )}
-                            <td
-                              className="max-w-32 truncate px-2 py-1 text-[11px] text-muted-foreground"
-                              title={c.sample}
-                            >
-                              {c.sample ?? ""}
-                            </td>
+                            {keepsNoValues(c) || c.values_hidden === true ? (
+                              <td
+                                className="max-w-32 truncate px-2 py-1 text-[10px] italic text-muted-foreground/70"
+                                title={keepsNoValues(c) ? NO_SAMPLE_TITLE : HIDDEN_SAMPLE_TITLE}
+                              >
+                                not kept
+                              </td>
+                            ) : (
+                              <td
+                                className="max-w-32 truncate px-2 py-1 text-[11px] text-muted-foreground"
+                                title={c.sample}
+                              >
+                                {c.sample ?? ""}
+                              </td>
+                            )}
                             {!asset.local && (
                               <td className="px-2 py-1">
                                 <Input

@@ -12,6 +12,7 @@
 // sample and byte caps) so a huge bucket cannot wedge the server.
 import { describeFetchFailure } from "@/lib/fetchFailure";
 import { parseAssetMetadata, type AssetMetadata } from "@/lib/catalogAssetMetadata";
+import { keepableColumn } from "@/lib/catalogColumnValues";
 import { diffColumns } from "@/lib/catalogSchemaDiff";
 import { createHash } from "node:crypto";
 import zlib from "node:zlib";
@@ -185,10 +186,7 @@ export type CrawlStats = {
 // values (lib/sensitiveData), which overrule the name where they can. Since
 // R555 lake files are too: a CSV or JSON file from the sample the crawl
 // already reads, a Parquet file from the first rows of its text columns.
-import { isPiiColumnName } from "@/lib/piiHeuristic";
 import { classifyColumn } from "@/lib/sensitiveData";
-
-export const isPiiColumn = isPiiColumnName;
 
 /**
  * A column with its personal-data finding set, or cleared when there is none.
@@ -233,6 +231,29 @@ export function classify(
     return withFinding<CatalogColumn>(c, []);
   });
   return { columns: out, pii: out.some((c) => c.pii) };
+}
+
+/**
+ * Catalog columns for a result set the caller has just read (a sheet published
+ * to the lakehouse): each judged from its values, with the first non-null one
+ * as its sample unless the column holds personal data (R556).
+ */
+export function columnsFromRows(
+  columns: ReadonlyArray<{ name: string; type: string }>,
+  rows: ReadonlyArray<ReadonlyArray<unknown>>,
+): CatalogColumn[] {
+  return classify(
+    columns.map((c, i) => {
+      const values = rows.map((r) => r[i]);
+      const sample = values.find((v) => v !== null && v !== undefined);
+      return {
+        name: c.name,
+        type: c.type,
+        ...(sample !== undefined ? { sample: String(sample).slice(0, 80) } : {}),
+        values,
+      };
+    }),
+  ).columns.map(keepableColumn);
 }
 
 // ── Warehouse crawling ───────────────────────────────────────────────────
@@ -1061,7 +1082,9 @@ export async function persistAssets(
       schema_name: a.schema_name,
       name: a.name,
       fqn: a.fqn,
-      columns: a.columns as unknown as Json,
+      // After the owner's tags are back on: a personal column keeps no value
+      // read from its data (R556).
+      columns: a.columns.map(keepableColumn) as unknown as Json,
       row_count: a.row_count,
       size_bytes: a.size_bytes,
       format: a.format,

@@ -1468,6 +1468,7 @@ export const DOCS_INDEX: DocsIndexPage[] = [
       "ords_url",
       "output_location",
       "password",
+      "pii",
       "port",
       "prices",
       "primary",

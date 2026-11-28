@@ -16,6 +16,13 @@ development branch and may be ahead of the latest tag.
 
 ### Upgrading
 
+- **Apply migration `20261213000000`** (R556) so the catalog keeps no value
+  of a column its data's own rules hide. It adds a trigger on
+  `catalog_assets` and on the two lakehouse policy tables, and clears the
+  samples and ranges already kept for such columns. Until then the app still
+  drops them for columns judged personal or tagged `pii` on its own writes and
+  hides them in the panel; columns hidden by a mask rule or a row filter keep
+  theirs.
 - **Apply migration `20261211000000`** (R551) to record what actually happened
   to online predictions: it adds `ml_outcomes` (the owner reads only), and to
   `ml_evaluations` a `source` (`batch` or `online`) and `window_days`, with
@@ -344,6 +351,19 @@ development branch and may be ahead of the latest tag.
 
 ### Added
 
+- **No values of personal columns in the catalog** (R556). A crawl kept one
+  sample of every column it profiled, and for numbers the lowest and highest
+  values, including a column it had just marked as email addresses. The
+  catalog can be shared read-only with people who cannot read the data, it
+  kept the copy after the data was erased or masked, and AI docs sent the
+  sample to the model. Now a column keeps no sample and no range when it is
+  judged personal, tagged `pii`, masked by one of its owner's tag rules or
+  table policies, or in a table under a row filter; its Sample reads
+  "not kept". The database applies this on every write (a crawl, a published
+  sheet, a tag saved in the panel), again when a rule is written later, and
+  once to what was already kept. AI docs tells the model what such a column
+  holds instead. A sheet published to the lakehouse is judged from the rows it
+  reads, not only its column names.
 - **Personal data in lake files, from their values** (R555). The catalog's
   crawl of a bucket marked personal columns from their names alone, while
   warehouse tables it profiles were judged from values since R521: a CSV whose

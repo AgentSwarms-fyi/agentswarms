@@ -131,7 +131,7 @@ async function registerInCatalog(
   meta: { description?: string; tags?: string[]; upstream: string[]; certify?: boolean },
 ): Promise<{ source_id: string; asset_id: string }> {
   const { runLakehouseStatement } = await import("@/utils/lakehouse/core.server");
-  const { isPiiColumn, runCrawl, schemaHash } = await import("@/utils/catalog/crawler.server");
+  const { columnsFromRows, runCrawl, schemaHash } = await import("@/utils/catalog/crawler.server");
   const source = await lakehouseCatalogSource(userId);
   const described = await runLakehouseStatement(
     userId,
@@ -143,15 +143,9 @@ async function registerInCatalog(
     `SELECT count(*) FROM ${qid(schema)}.${qid(table)}`,
     { rowCap: 1, auditVia: "sheets", useCache: false },
   );
-  const columns = described.columns.map((c, i) => {
-    const sample = described.rows.find((r) => r[i] !== null)?.[i];
-    return {
-      name: c.name,
-      type: c.type,
-      ...(sample !== undefined ? { sample: String(sample).slice(0, 80) } : {}),
-      ...(isPiiColumn(c.name) ? { pii: true } : {}),
-    };
-  });
+  // Judged from the rows just read, like a crawl (R556); a personal column
+  // keeps no sample.
+  const columns = columnsFromRows(described.columns, described.rows);
   const { data: user } = await supabaseAdmin.auth.admin.getUserById(userId);
   const fqn = `${schema}.${table}`;
   const tags = [...new Set(["sheets", ...(meta.tags ?? [])])];

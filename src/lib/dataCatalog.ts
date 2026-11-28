@@ -3,7 +3,9 @@
 // credential handling and crawling live in server functions.
 import { allDashboardWidgets } from "@/lib/biDashboards";
 import { parseAssetMetadata, type AssetMetadata } from "@/lib/catalogAssetMetadata";
+import { keepableColumn, keepsNoValues } from "@/lib/catalogColumnValues";
 import type { SchemaChanges } from "@/lib/catalogSchemaDiff";
+import { SENSITIVE_LABEL, type SensitiveKind } from "@/lib/sensitiveData";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { parseModelChoice } from "@/utils/providers/modelChoice";
@@ -36,6 +38,11 @@ export type CatalogColumn = {
   max?: number;
   /** A partition key: a directory in the path, not a value in the files. */
   partition?: boolean;
+  /**
+   * Set by the database when it emptied this column's sample and range (R556):
+   * it holds personal data, or a mask or row filter on its table hides it.
+   */
+  values_hidden?: boolean;
 };
 
 export type CatalogSource = {
@@ -220,9 +227,10 @@ export async function updateCatalogAsset(
   },
 ): Promise<void> {
   const { columns, ...rest } = patch;
+  // A column just tagged `pii` gives up its sample with the same save (R556).
   const { error } = await supabase
     .from("catalog_assets")
-    .update(columns ? { ...rest, columns: columns as unknown as Json } : rest)
+    .update(columns ? { ...rest, columns: columns.map(keepableColumn) as unknown as Json } : rest)
     .eq("id", id);
   if (error) throw new Error(error.message);
 }
@@ -565,6 +573,22 @@ export function lookupLineage(index: LineageIndex, keys: string[]): AssetLineage
 // ── AI documentation ─────────────────────────────────────────────────────
 
 /**
+ * One column as the docs model is told about it. A column that holds personal
+ * data is described by what it holds, never by an example: the model is a
+ * third party, and the example would be a real person's address (R556).
+ */
+export function docsColumnLine(c: CatalogColumn): string {
+  if (keepsNoValues(c)) {
+    const what =
+      c.pii_kind && Object.prototype.hasOwnProperty.call(SENSITIVE_LABEL, c.pii_kind)
+        ? SENSITIVE_LABEL[c.pii_kind as SensitiveKind]
+        : undefined;
+    return `- ${c.name} (${c.type}, personal data${what ? `: ${what}` : ""})`;
+  }
+  return `- ${c.name} (${c.type}${c.sample !== undefined ? `, e.g. ${JSON.stringify(c.sample)}` : ""})`;
+}
+
+/**
  * Generate an asset description + per-column docs with the user's BI model
  * (same /api/bi JSON endpoint the analyst pipeline uses) and persist them.
  * Returns the updated description and columns.
@@ -575,13 +599,7 @@ export async function generateAssetDocs(
   /** BI model choice ("provider/model"); omit for the server-side default chain. */
   model?: string | null,
 ): Promise<{ description: string; columns: CatalogColumn[] }> {
-  const colLines = asset.columns
-    .slice(0, 60)
-    .map(
-      (c) =>
-        `- ${c.name} (${c.type}${c.sample !== undefined ? `, e.g. ${JSON.stringify(c.sample)}` : ""})`,
-    )
-    .join("\n");
+  const colLines = asset.columns.slice(0, 60).map(docsColumnLine).join("\n");
   const choice = parseModelChoice(model ?? undefined);
   const res = await fetch("/api/bi", {
     method: "POST",
@@ -611,7 +629,7 @@ export async function generateAssetDocs(
 
   const columns = asset.columns.map((c) => {
     const d = parsed.columns?.[c.name]?.trim();
-    return d ? { ...c, description: d.slice(0, 200) } : c;
+    return keepableColumn(d ? { ...c, description: d.slice(0, 200) } : c);
   });
   const { error } = await supabase
     .from("catalog_assets")

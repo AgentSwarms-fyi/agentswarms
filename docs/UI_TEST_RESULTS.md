@@ -15,6 +15,20 @@ kept for review.
 
 <!-- newest first -->
 
+## 2026-11-28 — R556: no values of personal or hidden columns in the catalog
+
+Driven on the 8080 stack rebuilt from the R556 working tree, after the owner applied migration `20261213000000`, signed in as the owner. The page reported itself hidden throughout (the app window was covered), so the panel was read from the DOM rather than screenshots. Fixture: one made-up file uploaded to `etl/r556-test/contacts/contacts.csv` (30 rows; `contact` holds `person<n>@example.com`). Deleted with the owner's permission at the end of the round; a re-crawl took it out of the catalog (back to the source's 12 assets).
+
+| Surface | What was driven | Result |
+| --- | --- | --- |
+| Database, after the migration | read-only counts | the three triggers present; the one-time pass marked 10 columns `values_hidden` and left 206 columns with values; `analytics.revenue_facts` (the owner's one table policy, with a row filter): 0 of its 10 columns still hold a sample or range |
+| Data Catalog, asset panel | `analytics.revenue_facts` | every one of the 10 columns reads "not kept", titled "A mask or row filter on this table hides this column's values from some readers…"; null % and distinct counts still shown |
+| Source menu | re-crawl of "MinIO local etl demo" with the test file | `r556-test/contacts/*.csv` written with `contact` `pii: true`, no sample, no range, `values_hidden: true`; `id`, `email_campaign_id` and `note` kept their samples; the Lakehouse catalog source was not crawled (its `last_crawl_at` unchanged) |
+| Asset panel | the test asset | `contact` reads "not kept", titled "This column holds personal data, so the catalog keeps no value of it…"; `email_campaign_id` shows `1001` and its range |
+| Same | the tag `pii` typed on `note`, Save | "Saved"; the row: `note` tags `["pii"]`, no sample, `values_hidden: true`; the panel reads "not kept" with the personal title |
+
+Seen while driving: a toast left over from the crawl sat on top of the panel's Save button, so a click on Save landed on the toast, closed the panel and dropped the edit without a word. The toast stayed only because the page was hidden (toasts pause their timer then); on a visible page it clears after a few seconds. Saved here by focusing Save and pressing Enter. The re-crawl after tagging was not driven: menus would not settle on the hidden page. The database checks cover that write (below).
+
 ## 2026-11-28 — R555: personal data in lake files, from their values
 
 Driven on the 8080 stack rebuilt from the R555 working tree, signed in as the owner, in a fronted tab, against the bucket source "MinIO local etl demo" (bucket `etl`, last crawled 2026-10-31, before this round). Fixtures: two made-up files uploaded to `etl/r555-test/`: `contacts/contacts.csv` (30 rows; `contact` holds `person<n>@example.com`, `email_campaign_id` holds 1001–1030) and `people/people.parquet` (40 rows; text columns `reach_me` = `reader<n>@example.com` and `city`, numeric `id` and `spend`). Both were deleted with the owner's permission at the end of the round, and a re-crawl took them out of the catalog (back to the source's 12 assets).

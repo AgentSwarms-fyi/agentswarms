@@ -23,6 +23,14 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    id: "catalog-hides-personal-values",
+    date: "2026-11-28",
+    title: "No personal values in the catalog",
+    body: "A column that holds personal data, or that a mask or row filter hides, no longer keeps a sample or range in the catalog, and AI docs never sends one to the model.",
+    link: { to: "/docs/data" },
+    cta: "How it works",
+  },
+  {
     id: "lake-file-personal-data",
     date: "2026-11-28",
     title: "Personal data in lake files",

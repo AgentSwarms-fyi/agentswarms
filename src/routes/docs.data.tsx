@@ -630,10 +630,20 @@ function DataPage() {
         of up to 40 of its text columns, which reads those columns of one row group and stops, not
         the file. Its other columns, and files the crawl does not read (ORC, a file past the
         crawl&apos;s sample budget, a table in Iceberg, Delta or Hudi), are judged by their names,
-        and their findings say so. The values read for this are not kept, only the finding; a CSV or
-        JSON column&apos;s profile still shows one sample value, as before. An unchanged file keeps
-        what its values showed on the next crawl; a file crawled before this was added is read once
-        more.
+        and their findings say so. The values read for this are not kept, only the finding. An
+        unchanged file keeps what its values showed on the next crawl; a file crawled before this
+        was added is read once more.
+      </Callout>
+      <Callout kind="why" title="No values of personal columns in the catalog">
+        A crawl keeps three values it read of each column: one sample, and for numbers the lowest
+        and highest. A column that holds personal data keeps none of them, and its Sample reads{" "}
+        <C>not kept</C>: one judged personal, one you tagged <C>pii</C>, one a lakehouse tag rule or
+        table policy masks, and every column of a table under a row filter. The catalog can be
+        shared with people who cannot read the data, and it would otherwise hold a copy that erasing
+        or masking the data does not reach. The finding, its counts and the column&apos;s null and
+        distinct figures stay. AI docs tells the model what such a column holds, never an example of
+        it. A rule written later applies to what is already kept; a value comes back only when a
+        crawl reads it again with the rule gone.
       </Callout>
       <Callout kind="warn" title="Bucket queries read up to 50,000 rows per file">
         A bucket query is not pushed down. The referenced files are read up to a per-file cap and

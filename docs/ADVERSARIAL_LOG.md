@@ -109,6 +109,24 @@ Never infer it from what rendered.
 
 <!-- newest first -->
 
+### 2026-11-28 — R556: the catalog kept what the data's own rules hid
+
+**Why this round.** Found in R555's UI test: a column the crawl had just marked as email addresses still showed one of them under Sample.
+
+| Finding | Sev | What was wrong |
+| --- | --- | --- |
+| A personal column kept a real value in the catalog | S2 | **Found in R555's UI test.** Every profiled column stored one sample, and numbers their lowest and highest values, personal or not. A catalog source can be shared read-only with people who have no access to the data (`20260739000000_catalog_grants`), so they read one real address, phone number or IBAN per personal column; the copy also outlived erasing or masking the data. Now a column judged personal or tagged `pii` keeps none of them. |
+| A masked column, or a row-filtered table, still showed its values | S2 | **Found in scoping.** A lakehouse mask (by tag or by table policy) and a row filter hide values from some readers; the catalog showed them anyway. The database now drops them on every write, and again when a rule is written later. On this stack the one row-filtered table lost all 10 samples. |
+| AI docs sent a personal value to the model | S2 | **Found in scoping.** The prompt listed each column `e.g. "<sample>"`, so a column marked as email addresses went to the model provider with an address. It now says what the column holds and gives no example. |
+| A published sheet was judged by its column names | S3 | **Found in scoping.** Publishing a sheet to the lakehouse read five rows and then judged personal data by name only. It is judged from those rows now, like a crawl. |
+| A toast over Save closed the panel and dropped the edit | S4 | **Found in the UI test.** A click on Save landed on a leftover toast, which counts as a click outside the panel. Only lasting while the page is hidden (toast timers pause then). Left as found. |
+
+**Checked and sound.** Run against a real Postgres 16 with the three tables stubbed and the migration applied as written (27 checks; it also applies twice cleanly), then mutation-checked: 9 mutants, all killed.
+- **Every writer**: insert, update, a tag added later, a writer putting a sample back: all stripped. Order of columns and non-object entries survive.
+- **Owners stay apart**: one owner's tag rule, table policy or row filter never touches another owner's catalog, even on that owner's next write. (A mutant dropping this first survived: the test never re-wrote the second owner's asset. Added.)
+- **Nothing else changes**: the finding, counts, null % and distinct counts stay; a column no longer hidden loses its mark on the next write.
+- **App half**: 11 code mutants killed by 12 unit tests (crawl write, panel save, AI docs prompt and write-back, sheet publish, panel display).
+
 ### 2026-11-28 — R555: a file in a bucket was judged by its column names
 
 **Why this round.** R521 judged a warehouse table the crawl profiles, and a dataset, from its values; its one open item was the lake. The catalog's crawl of a bucket still marked personal columns from their names, though for a CSV or JSON file it had already read the values to work out the columns.
