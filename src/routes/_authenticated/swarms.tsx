@@ -142,7 +142,7 @@ import { graphFingerprint } from "@/lib/swarmPublish";
 import { SwarmChatDialog } from "@/components/swarms/SwarmChatDialog";
 import { SwarmVersionsDialog } from "@/components/swarms/SwarmVersionsDialog";
 import { canvasForm, snapshotSwarmVersion, graphHash, swarmStoredForm } from "@/lib/swarmVersions";
-import { confirmAsk } from "@/components/ui/confirm-dialog";
+import { chooseAsk, confirmAsk } from "@/components/ui/confirm-dialog";
 import { clickable } from "@/lib/clickable";
 import { clickedNodeCorner, nodeCornerAt } from "@/lib/canvasPlacement";
 import { StarButton } from "@/components/StarButton";
@@ -1022,18 +1022,25 @@ function SwarmsCanvas({
         graphFingerprint(published.published_nodes, published.published_edges),
     [published, nodes, edges],
   );
-  /** Ask before something replaces unsaved edits on the canvas; true when it may go ahead. */
+  /**
+   * Ask before something replaces unsaved edits on the canvas; true when it may
+   * go ahead. Saving is offered beside discarding: the question used to offer
+   * only Discard or Cancel, so keeping the edits meant cancelling, finding the
+   * Save button and leaving again. A save that fails (a blank name, a change
+   * from another tab) keeps you on the canvas, with its reason in a toast.
+   */
   async function mayDiscard(what: string): Promise<boolean> {
     if (!unsaved) return true;
     // By the name it is saved under: the name on the canvas may be one of the changes.
     const savedName = swarmList.find((s) => s.id === swarmId)?.name ?? swarmName;
-    return Boolean(
-      await confirmAsk({
-        title: `Discard the changes to "${savedName}"?`,
-        body: `They are not saved. ${what}`,
-        actionLabel: "Discard changes",
-      }),
-    );
+    const choice = await chooseAsk({
+      title: `Save the changes to "${savedName}"?`,
+      body: `They are not saved. ${what}`,
+      actionLabel: "Discard changes",
+      alternativeLabel: "Save and leave",
+    });
+    if (choice === "alternative") return handleSave();
+    return choice === "action";
   }
 
   // Leaving the canvas — the Gallery button, a link, closing or reloading the
@@ -1457,15 +1464,16 @@ function SwarmsCanvas({
     });
   }, [selectedNodeId, setNodes]);
 
-  const handleSave = async (overwrite = false) => {
-    if (!user) return;
+  /** Save the canvas; true when it was saved (a leave waits on it). */
+  const handleSave = async (overwrite = false): Promise<boolean> => {
+    if (!user) return false;
     // This one handler both creates the row (first save) and updates it, so
     // the name is checked here for both: blank, or longer than the limit (a
     // template's title or a loaded swarm's old name skips the input's maxLength).
     const nameError = nameProblem(swarmName, "swarm");
     if (nameError) {
       toast.error(nameError);
-      return;
+      return false;
     }
     setSaving(true);
     // `label` IS NOT DECORATION — it is how the runtime picks a branch.
@@ -1517,7 +1525,7 @@ function SwarmsCanvas({
       setSaving(false);
       if (error || !created) {
         toast.error("Failed to save");
-        return;
+        return false;
       }
       setSwarmId(created.id);
       storedFormRef.current = swarmStoredForm(created);
@@ -1534,7 +1542,7 @@ function SwarmsCanvas({
       });
       lastVersionHashRef.current = graphHash(nodes, edges);
       toast.success("Swarm saved to your library");
-      return;
+      return true;
     }
 
     // FOUND IN R288: the save wrote over whatever was stored, so a save from
@@ -1552,7 +1560,7 @@ function SwarmsCanvas({
       toast.error("Failed to save", {
         description: readError?.message ?? "The swarm is no longer there.",
       });
-      return;
+      return false;
     }
     if (
       !overwrite &&
@@ -1562,7 +1570,7 @@ function SwarmsCanvas({
       setSaving(false);
       setStale(true);
       toast.error("This swarm was changed in another tab or session after this page read it");
-      return;
+      return false;
     }
     const { data: written, error } = await supabase
       .from("swarms")
@@ -1578,6 +1586,7 @@ function SwarmsCanvas({
           error?.message ??
           "The swarm was written to while this save was in progress. Nothing was saved; save again.",
       });
+      return false;
     } else {
       storedFormRef.current = swarmStoredForm(written);
       setStale(false);
@@ -1598,6 +1607,7 @@ function SwarmsCanvas({
         lastVersionHashRef.current = hash;
       }
       toast.success("Swarm saved");
+      return true;
     }
   };
 
